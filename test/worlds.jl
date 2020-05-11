@@ -199,3 +199,11 @@ end
 notify(c26506_1)
 wait(c26506_2)
 @test result26506[1] == 3
+
+# _apply_in_world builtin
+f_aiw(x) = "world one; x=$x"
+wc_aiw1 = get_world_counter()
+f_aiw(x) = "world two; x=$x"
+wc_aiw2 = get_world_counter()
+@test Core._apply_in_world(wc_aiw1, f_aiw, (2,)) == "world one; x=2"
+@test Core._apply_in_world(wc_aiw2, f_aiw, (2,)) == "world two; x=2"
