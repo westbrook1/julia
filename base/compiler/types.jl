@@ -17,7 +17,6 @@ All AbstractInterpreters are expected to provide at least the following methods:
 """
 abstract type AbstractInterpreter; end
 
-
 """
     InferenceResult
 
@@ -197,3 +196,14 @@ lock_mi_inference(ni::NativeInterpreter, mi::MethodInstance) = (mi.inInference =
     See lock_mi_inference
 """
 unlock_mi_inference(ni::NativeInterpreter, mi::MethodInstance) = (mi.inInference = false; nothing)
+
+"""
+Emit an annotation when inference widens a result. These annotations are ignored
+by the native interpreter, but can be used by external tooling to annotate
+inference results.
+"""
+mark_dynamic!(ni::NativeInterpreter, sv, s) = nothing
+
+may_optimize(ni::NativeInterpreter) = true
+may_compress(ni::NativeInterpreter) = true
+should_always_cache_tree(ni::NativeInterpreter) = false

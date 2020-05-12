@@ -22,9 +22,17 @@ function abstract_call_gf_by_type(interp::AbstractInterpreter, @nospecialize(f),
                                   max_methods = InferenceParams(interp).MAX_METHODS)
     atype_params = unwrap_unionall(atype).parameters
     ft = unwrap_unionall(atype_params[1]) # TODO: ccall jl_method_table_for here
-    isa(ft, DataType) || return Any # the function being called is unknown. can't properly handle this backedge right now
+    if !isa(ft, DataType)
+        # can't properly handle this backedge right now
+        mark_dynamic!(interp, sv, "the function being called is unknown")
+        return Any
+    end
     ftname = ft.name
-    isdefined(ftname, :mt) || return Any # not callable. should be Bottom, but can't track this backedge right now
+    if !isdefined(ftname, :mt)
+        # should be Bottom, but can't track this backedge right now
+        mark_dynamic!(interp, sv, "The function is not callable")
+        return Any # not callable.
+    end
     if ftname === _TYPE_NAME
         tname = ft.parameters[1]
         if isa(tname, TypeVar)
@@ -34,6 +42,7 @@ function abstract_call_gf_by_type(interp::AbstractInterpreter, @nospecialize(f),
         if !isa(tname, DataType)
             # can't track the backedge to the ctor right now
             # for things like Union
+            mark_dynamic!(interp, sv, "The called constructor is too complicated")
             return Any
         end
     end
@@ -50,7 +59,10 @@ function abstract_call_gf_by_type(interp::AbstractInterpreter, @nospecialize(f),
                             get_world_counter(interp), min_valid, max_valid)
                     return (ms, min_valid[1], max_valid[1])
                 end
-            xapplicable === false && return Any
+            if xapplicable === false
+                mark_dynamic!(interp, sv, "For one of the union split cases, too many methods matched")
+                return Any
+            end
             append!(applicable, xapplicable)
         end
     else
@@ -63,6 +75,7 @@ function abstract_call_gf_by_type(interp::AbstractInterpreter, @nospecialize(f),
         if applicable === false
             # this means too many methods matched
             # (assume this will always be true, so we don't compute / update valid age in this case)
+            mark_dynamic!(interp, sv, "Too many methods matched")
             return Any
         end
     end
@@ -90,6 +103,7 @@ function abstract_call_gf_by_type(interp::AbstractInterpreter, @nospecialize(f),
         sig = match[1]
         if istoplevel && !isdispatchtuple(sig)
             # only infer concrete call sites in top-level expressions
+            mark_dynamic!(interp, sv, "Refusing to infer non-concrete call site in top-level expression")
             rettype = Any
             break
         end
@@ -140,6 +154,7 @@ function abstract_call_gf_by_type(interp::AbstractInterpreter, @nospecialize(f),
         end
     end
     if call_result_unused(sv) && !(rettype === Bottom)
+        mark_dynamic!(interp, sv, "Call result was widened, because the return type is unused")
         # We're mainly only here because the optimizer might want this code,
         # but we ourselves locally don't typically care about it locally
         # (beyond checking if it always throws).
@@ -275,6 +290,7 @@ end
 
 function abstract_call_method(interp::AbstractInterpreter, method::Method, @nospecialize(sig), sparams::SimpleVector, hardlimit::Bool, sv::InferenceState)
     if method.name === :depwarn && isdefined(Main, :Base) && method.module === Main.Base
+        mark_dynamic!(interp, sv, "Refusing to infer into `depwarn`")
         return Any, false, nothing
     end
     topmost = nothing
@@ -299,6 +315,7 @@ function abstract_call_method(interp::AbstractInterpreter, method::Method, @nosp
                 # avoid widening when detecting self-recursion
                 # TODO: merge call cycle and return right away
                 if call_result_unused(sv)
+                    mark_dynamic!(interp, sv, "Widening unused call result early to avoid unbounded recursion")
                     # since we don't use the result (typically),
                     # we have a self-cycle in the call-graph, but not in the inference graph (typically):
                     # break this edge now (before we record it) by returning early
@@ -379,6 +396,7 @@ function abstract_call_method(interp::AbstractInterpreter, method::Method, @nosp
             # continue inference, but note that we've limited parameter complexity
             # on this call (to ensure convergence), so that we don't cache this result
             if call_result_unused(sv)
+                mark_dynamic!(interp, sv, "Widening unused call result early to avoid unbounded recursion")
                 # if we don't (typically) actually care about this result,
                 # don't bother trying to examine some complex abstract signature
                 # since it's very unlikely that we'll try to inline this,
@@ -580,8 +598,8 @@ function abstract_apply(interp::AbstractInterpreter, @nospecialize(itft), @nospe
     aftw = widenconst(aft)
     if !isa(aft, Const) && (!isType(aftw) || has_free_typevars(aftw))
         if !isconcretetype(aftw) || (aftw <: Builtin)
-            # non-constant function of unknown type: bail now,
-            # since it seems unlikely that abstract_call will be able to do any better after splitting
+            mark_dynamic!(interp, sv, "non-constant function of unknown type")
+            # bail now, since it seems unlikely that abstract_call will be able to do any better after splitting
             # this also ensures we don't call abstract_call_gf_by_type below on an IntrinsicFunction or Builtin
             return Any
         end
@@ -905,6 +923,7 @@ function abstract_call(interp::AbstractInterpreter, fargs::Union{Nothing,Vector{
         # non-constant function, but the number of arguments is known
         # and the ft is not a Builtin or IntrinsicFunction
         if typeintersect(widenconst(ft), Builtin) != Union{}
+            mark_dynamic!(interp, sv, "The called function was unknown")
             return Any
         end
         return abstract_call_gf_by_type(interp, nothing, argtypes, argtypes_to_type(argtypes), sv, max_methods)
