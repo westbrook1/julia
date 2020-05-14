@@ -1136,7 +1136,7 @@ function which(@nospecialize(f), @nospecialize(t))
     if m === nothing
         error("no unique matching method found for the specified argument types")
     end
-    return m.func::Method
+    return m::Method
 end
 
 """

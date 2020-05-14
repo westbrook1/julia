@@ -3,7 +3,7 @@
 @nospecialize
 
 struct InvokeData
-    entry::Core.TypeMapEntry
+    entry::Method
     types0
     min_valid::UInt
     max_valid::UInt
@@ -682,17 +682,6 @@ function analyze_method!(idx::Int, sig::Signature, @nospecialize(metharg), meths
         return nothing
     end
 
-    # Check if we intersect any of this method's ambiguities
-    # TODO: We could split out the ambiguous case as another "union split" case.
-    # For now, we just reject the method
-    if method.ambig !== nothing && invoke_data === nothing
-        for entry::Core.TypeMapEntry in method.ambig
-            if typeintersect(sig.atype, entry.sig) !== Bottom
-                return nothing
-            end
-        end
-    end
-
     # Bail out if any static parameters are left as TypeVar
     ok = true
     for i = 1:length(methsp)
@@ -943,7 +932,7 @@ is_builtin(s::Signature) =
 function inline_invoke!(ir::IRCode, idx::Int, sig::Signature, invoke_data::InvokeData, sv::OptimizationState, todo::Vector{Any})
     stmt = ir.stmts[idx]
     calltype = ir.types[idx]
-    method = invoke_data.entry.func
+    method = invoke_data.entry
     (metharg, methsp) = ccall(:jl_type_intersection_with_env, Any, (Any, Any),
                             sig.atype, method.sig)::SimpleVector
     methsp = methsp::SimpleVector
@@ -1161,7 +1150,7 @@ function compute_invoke_data(@nospecialize(atypes), world::UInt)
     invoke_entry = ccall(:jl_gf_invoke_lookup, Any, (Any, UInt),
                          invoke_types, world) # XXX: min_valid, max_valid
     invoke_entry === nothing && return nothing
-    invoke_data = InvokeData(invoke_entry::Core.TypeMapEntry, invoke_types, min_valid[1], max_valid[1])
+    invoke_data = InvokeData(invoke_entry::Method, invoke_types, min_valid[1], max_valid[1])
     atype0 = atypes[2]
     atypes = atypes[4:end]
     pushfirst!(atypes, atype0)
