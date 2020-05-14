@@ -1331,7 +1331,7 @@ min_world(m::Core.CodeInstance) = m.min_world
 max_world(m::Core.CodeInstance) = m.max_world
 min_world(m::Core.CodeInfo) = m.min_world
 max_world(m::Core.CodeInfo) = m.max_world
-get_world_counter() = ccall(:jl_get_world_counter, UInt, ())
+get_world_counter() = Core.current_world()
 
 
 """

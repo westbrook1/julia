@@ -1039,6 +1039,12 @@ JL_CALLABLE(jl_f_invoke)
     return res;
 }
 
+JL_CALLABLE(jl_f_current_world)
+{
+    JL_NARGSV(current_world, 0);
+    return jl_box_ulong(jl_world_counter);
+}
+
 JL_DLLEXPORT jl_value_t *jl_get_keyword_sorter(jl_value_t *f);
 
 JL_CALLABLE(jl_f_invoke_kwsorter)
@@ -1533,6 +1539,7 @@ void jl_init_primitives(void) JL_GC_DISABLED
     // method table utils
     jl_builtin_applicable = add_builtin_func("applicable", jl_f_applicable);
     jl_builtin_invoke = add_builtin_func("invoke", jl_f_invoke);
+    jl_builtin_current_world = add_builtin_func("current_world", jl_f_current_world);
     jl_typename_t *itn = ((jl_datatype_t*)jl_typeof(jl_builtin_invoke))->name;
     jl_value_t *ikws = jl_new_generic_function_with_supertype(itn->name, jl_core_module, jl_builtin_type);
     itn->mt->kwsorter = ikws;
