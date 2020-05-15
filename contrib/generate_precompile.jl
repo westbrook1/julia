@@ -66,7 +66,7 @@ end
 
 function generate_precompile_statements()
     start_time = time_ns()
-    debug_output = devnull # or stdout
+    debug_output = stdout
 
     # Precompile a package
     mktempdir() do prec_path
