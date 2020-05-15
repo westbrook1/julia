@@ -682,17 +682,6 @@ function analyze_method!(idx::Int, sig::Signature, @nospecialize(metharg), meths
         return nothing
     end
 
-    # Check if we intersect any of this method's ambiguities
-    # TODO: We could split out the ambiguous case as another "union split" case.
-    # For now, we just reject the method
-    if method.ambig !== nothing && invoke_data === nothing
-        for entry::Core.TypeMapEntry in method.ambig
-            if typeintersect(sig.atype, entry.sig) !== Bottom
-                return nothing
-            end
-        end
-    end
-
     # Bail out if any static parameters are left as TypeVar
     ok = true
     for i = 1:length(methsp)
@@ -1024,7 +1013,7 @@ function assemble_inline_todo!(ir::IRCode, sv::OptimizationState)
         end
 
         # Regular case: Retrieve matching methods from cache (or compute them)
-        (meth, min_valid, max_valid) = get(sv.matching_methods_cache, sig.atype) do
+        (meth, min_valid, max_valid) = begin
             # World age does not need to be taken into account in the cache
             # because it is forwarded from type inference through `sv.params`
             # in the case that the cache is nonempty, so it should be unchanged
@@ -1033,13 +1022,39 @@ function assemble_inline_todo!(ir::IRCode, sv::OptimizationState)
             min_val = UInt[typemin(UInt)]
             max_val = UInt[typemax(UInt)]
             ms = _methods_by_ftype(sig.atype, sv.params.MAX_METHODS,
-                                   sv.world, min_val, max_val)
-            return (ms, min_val[1], max_val[1])
+                                   sv.world, min_val, max_val, true)
+            (ms, min_val[1], max_val[1])
         end
         if meth === false || length(meth) == 0
             # No applicable method, or too many applicable methods
             continue
         end
+        # reject result if any ambiguities seen to arise in the results
+        ambig = false
+        for i in 1:length(meth)
+            matc1 = meth[i]
+            m1 = matc1[3]::Method
+            for j in (i + 1):length(meth)
+                matc2 = meth[j]
+                m2 = matc2[3]::Method
+                matc1[1] <: m2.sig && break
+                ti12 = typeintersect(m1.sig, m2.sig)
+                if ti12 !== Union{} && !morespecific(m1.sig, m2.sig)
+                    # check if this ambiguity is covered by an earlier method
+                    # this is an optimal version of calling `isambiguous(m1, m2, ambiguous_bottom=true)`
+                    ambig = true
+                    for k in 1:(i - 1)
+                        if ti12 <: (meth[k][3]::Method).sig
+                            ambig = false
+                            break
+                        end
+                    end
+                end
+                ambig && break
+            end
+            ambig && break
+        end
+        ambig && continue
         update_valid_age!(min_valid, max_valid, sv)
 
         cases = Pair{Any, Any}[]

@@ -47,7 +47,7 @@ function abstract_call_gf_by_type(interp::AbstractInterpreter, @nospecialize(f),
             (xapplicable, min_valid[1], max_valid[1]) =
                 get!(sv.matching_methods_cache, sig_n) do
                     ms = _methods_by_ftype(sig_n, max_methods,
-                            get_world_counter(interp), min_valid, max_valid)
+                            get_world_counter(interp), min_valid, max_valid, false)
                     return (ms, min_valid[1], max_valid[1])
                 end
             xapplicable === false && return Any
@@ -57,7 +57,7 @@ function abstract_call_gf_by_type(interp::AbstractInterpreter, @nospecialize(f),
         (applicable, min_valid[1], max_valid[1]) =
             get!(sv.matching_methods_cache, atype) do
                 ms = _methods_by_ftype(atype, max_methods,
-                        get_world_counter(interp), min_valid, max_valid)
+                        get_world_counter(interp), min_valid, max_valid, false)
                 return (ms, min_valid[1], max_valid[1])
             end
         if applicable === false

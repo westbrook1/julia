@@ -19,24 +19,24 @@ include("testenv.jl")
 getline(m::Core.TypeMapEntry) = getline(m.func::Method)
 getline(m::Method) = m.line - lineoffset
 
-ambigs = Any[[], [3], [2, 5], [], [3]]
-for m in methods(ambig)
-    ln = getline(m)
-    atarget = ambigs[ln]
-    if isempty(atarget)
-        @test m.ambig === nothing
-    else
-        aln = Int[getline(a::Core.TypeMapEntry) for a in m.ambig]
-        @test sort(aln) == atarget
-    end
-end
+#ambigs = Any[[], [3], [2, 5], [], [3]]
+#for m in methods(ambig)
+#    ln = getline(m)
+#    atarget = ambigs[ln]
+#    if isempty(atarget)
+#        @test m.ambig === nothing
+#    else
+#        aln = Int[getline(a::Core.TypeMapEntry) for a in m.ambig]
+#        @test sort(aln) == atarget
+#    end
+#end
 
 @test length(methods(ambig)) == 5
 @test length(Base.methods_including_ambiguous(ambig, Tuple)) == 5
 
 @test length(methods(ambig, (Int, Int))) == 1
 @test length(methods(ambig, (UInt8, Int))) == 0
-@test length(Base.methods_including_ambiguous(ambig, (UInt8, Int))) == 3
+@test length(Base.methods_including_ambiguous(ambig, (UInt8, Int))) == 2
 
 @test ambig("hi", "there") == 1
 @test ambig(3.1, 3.2) == 5
@@ -58,13 +58,11 @@ let err = try
     Base.showerror(io, err)
     lines = split(String(take!(io)), '\n')
     ambig_checkline(str) = startswith(str, "  ambig(x, y::Integer) in $curmod_str at") ||
-                           startswith(str, "  ambig(x::Integer, y) in $curmod_str at") ||
-                           startswith(str, "  ambig(x::Number, y) in $curmod_str at")
+                           startswith(str, "  ambig(x::Integer, y) in $curmod_str at")
     @test ambig_checkline(lines[2])
     @test ambig_checkline(lines[3])
-    @test ambig_checkline(lines[4])
-    @test lines[5] == "Possible fix, define"
-    @test lines[6] == "  ambig(::Integer, ::Integer)"
+    @test lines[4] == "Possible fix, define"
+    @test lines[5] == "  ambig(::Integer, ::Integer)"
 end
 
 ambig_with_bounds(x, ::Int, ::T) where {T<:Integer,S} = 0

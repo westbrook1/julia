@@ -1439,11 +1439,9 @@ function detect_ambiguities(mods...;
             elseif isa(f, DataType) && isdefined(f.name, :mt) && f.name.mt !== Symbol.name.mt
                 mt = Base.MethodList(f.name.mt)
                 for m in mt
-                    if m.ambig !== nothing
-                        for m2 in m.ambig
-                            if Base.isambiguous(m, m2.func, ambiguous_bottom=ambiguous_bottom)
-                                push!(ambs, sortdefs(m, m2.func))
-                            end
+                    for m2 in mt
+                        if typeintersect(m.sig, m2.sig) !== Union{} && Base.isambiguous(m, m2, ambiguous_bottom=ambiguous_bottom)
+                            push!(ambs, sortdefs(m, m2))
                         end
                     end
                 end
@@ -1459,11 +1457,13 @@ function detect_ambiguities(mods...;
             m = parent
         end
     end
-    for m in Base.MethodList(Symbol.name.mt)
-        if m.ambig !== nothing && is_in_mods(m.module)
-            for m2 in m.ambig
-                if Base.isambiguous(m, m2.func, ambiguous_bottom=ambiguous_bottom)
-                    push!(ambs, sortdefs(m, m2.func))
+    let mt = Base.MethodList(Symbol.name.mt)
+        for m in mt
+            if is_in_mods(m.module)
+                for m2 in mt
+                    if typeintersect(m.sig, m2.sig) !== Union{} && Base.isambiguous(m, m2, ambiguous_bottom=ambiguous_bottom)
+                        push!(ambs, sortdefs(m, m2))
+                    end
                 end
             end
         end
