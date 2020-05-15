@@ -200,10 +200,15 @@ notify(c26506_1)
 wait(c26506_2)
 @test result26506[1] == 3
 
-# _apply_in_world builtin
-f_aiw(x) = "world one; x=$x"
+# invoke_in_world
+f_inworld(x) = "world one; x=$x"
+g_inworld(x; y) = "world one; x=$x, y=$y"
 wc_aiw1 = get_world_counter()
-f_aiw(x) = "world two; x=$x"
+f_inworld(x) = "world two; x=$x"
+g_inworld(x; y) = "world two; x=$x, y=$y"
 wc_aiw2 = get_world_counter()
-@test Core._apply_in_world(wc_aiw1, f_aiw, (2,)) == "world one; x=2"
-@test Core._apply_in_world(wc_aiw2, f_aiw, (2,)) == "world two; x=2"
+@test Base.invoke_in_world(wc_aiw1, f_inworld, 2) == "world one; x=2"
+@test Base.invoke_in_world(wc_aiw2, f_inworld, 2) == "world two; x=2"
+@test Base.invoke_in_world(wc_aiw1, g_inworld, 2, y=3) == "world one; x=2, y=3"
+@test Base.invoke_in_world(wc_aiw2, g_inworld, 2, y=3) == "world two; x=2, y=3"
+
