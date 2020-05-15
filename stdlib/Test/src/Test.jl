@@ -1439,8 +1439,9 @@ function detect_ambiguities(mods...;
             elseif isa(f, DataType) && isdefined(f.name, :mt) && f.name.mt !== Symbol.name.mt
                 mt = Base.MethodList(f.name.mt)
                 for m in mt
-                    for m2 in mt
-                        if typeintersect(m.sig, m2.sig) !== Union{} && Base.isambiguous(m, m2, ambiguous_bottom=ambiguous_bottom)
+                    for m2 in Base._methods_by_ftype(m.sig, -1, typemax(UInt), UInt[typemin(UInt)], UInt[typemax(UInt)], true)
+                        m2 = m2[3]
+                        if m !== m2 && !(Base.morespecific(m.sig, m2.sig) || Base.morespecific(m2.sig, m.sig)) && Base.isambiguous(m, m2, ambiguous_bottom=ambiguous_bottom)
                             push!(ambs, sortdefs(m, m2))
                         end
                     end
@@ -1454,14 +1455,15 @@ function detect_ambiguities(mods...;
             recursive || return false
             p = parentmodule(m)
             p === m && return false
-            m = parent
+            m = p
         end
     end
     let mt = Base.MethodList(Symbol.name.mt)
         for m in mt
             if is_in_mods(m.module)
-                for m2 in mt
-                    if typeintersect(m.sig, m2.sig) !== Union{} && Base.isambiguous(m, m2, ambiguous_bottom=ambiguous_bottom)
+                for m2 in Base._methods_by_ftype(m.sig, -1, typemax(UInt), UInt[typemin(UInt)], UInt[typemax(UInt)], true)
+                    m2 = m2[3]
+                    if m !== m2 && !(Base.morespecific(m.sig, m2.sig) || Base.morespecific(m2.sig, m.sig)) && Base.isambiguous(m, m2, ambiguous_bottom=ambiguous_bottom)
                         push!(ambs, sortdefs(m, m2))
                     end
                 end
