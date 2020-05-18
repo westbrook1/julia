@@ -284,7 +284,7 @@ plus_saturate(x::Int, y::Int) = max(x, y, x+y)
 # known return type
 isknowntype(@nospecialize T) = (T === Union{}) || isa(T, Const) || isconcretetype(widenconst(T))
 
-function statement_cost(ex::Expr, line::Int, src::CodeInfo, sptypes::Vector{Any}, slottypes::Vector{Any}, params::OptimizationParams)
+function statement_cost(ex::Expr, line::Int, src::CodeInfo, sptypes::Vector{Any}, slottypes::Vector{Any}, params::OptimizationParams, error_path::Bool)
     head = ex.head
     if is_meta_expr_head(head)
         return 0
@@ -319,7 +319,7 @@ function statement_cost(ex::Expr, line::Int, src::CodeInfo, sptypes::Vector{Any}
                 return 0
             elseif (f === Main.Core.arrayref || f === Main.Core.const_arrayref) && length(ex.args) >= 3
                 atyp = argextype(ex.args[3], src, sptypes, slottypes)
-                return isknowntype(atyp) ? 4 : params.inline_nonleaf_penalty
+                return isknowntype(atyp) ? 4 : error_path ? 20 : params.inline_nonleaf_penalty
             end
             fidx = find_tfunc(f)
             if fidx === nothing
@@ -329,7 +329,7 @@ function statement_cost(ex::Expr, line::Int, src::CodeInfo, sptypes::Vector{Any}
             end
             return T_FFUNC_COST[fidx]
         end
-        return params.inline_nonleaf_penalty
+        return error_path ? 20 : params.inline_nonleaf_penalty
     elseif head === :foreigncall || head === :invoke
         # Calls whose "return type" is Union{} do not actually return:
         # they are errors. Since these are not part of the typical
@@ -341,7 +341,7 @@ function statement_cost(ex::Expr, line::Int, src::CodeInfo, sptypes::Vector{Any}
     elseif head === :return
         a = ex.args[1]
         if a isa Expr
-            return statement_cost(a, -1, src, sptypes, slottypes, params)
+            return statement_cost(a, -1, src, sptypes, slottypes, params, false)
         end
         return 0
     elseif head === :(=)
@@ -352,7 +352,7 @@ function statement_cost(ex::Expr, line::Int, src::CodeInfo, sptypes::Vector{Any}
         end
         a = ex.args[2]
         if a isa Expr
-            cost = plus_saturate(cost, statement_cost(a, -1, src, sptypes, slottypes, params))
+            cost = plus_saturate(cost, statement_cost(a, -1, src, sptypes, slottypes, params, error_path))
         end
         return cost
     elseif head === :copyast
@@ -376,10 +376,11 @@ end
 function inline_worthy(body::Array{Any,1}, src::CodeInfo, sptypes::Vector{Any}, slottypes::Vector{Any},
                        params::OptimizationParams, cost_threshold::Integer=params.inline_cost_threshold)
     bodycost::Int = 0
+    throw_blocks = find_throw_blocks(body)
     for line = 1:length(body)
         stmt = body[line]
         if stmt isa Expr
-            thiscost = statement_cost(stmt, line, src, sptypes, slottypes, params)::Int
+            thiscost = statement_cost(stmt, line, src, sptypes, slottypes, params, line in throw_blocks)::Int
         elseif stmt isa GotoNode
             # loops are generally always expensive
             # but assume that forward jumps are already counted for from

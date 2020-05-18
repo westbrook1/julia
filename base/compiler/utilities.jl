@@ -217,6 +217,45 @@ function find_ssavalue_uses(e::Expr, uses::Vector{BitSet}, line::Int)
     end
 end
 
+function is_throw_call(e::Expr)
+    if e.head === :call
+        f = e.args[1]
+        if isa(f, GlobalRef)
+            ff = abstract_eval_global(f.mod, f.name)
+            if isa(ff, Const) && ff.val === Core.throw
+                return true
+            end
+        end
+    end
+    return false
+end
+
+function find_throw_blocks(code::Vector{Any})
+    stmts = BitSet()
+    n = length(code)
+    last_br = 0
+    try_depth = 0
+    for i in 1:n
+        s = code[i]
+        if isa(s, Expr)
+            if s.head === :enter
+                try_depth += 1
+            elseif s.head === :leave
+                try_depth -= (s.args[1]::Int)
+            elseif s.head === :gotoifnot || s.head  === :return || s.head === :unreachable
+                last_br = i
+            elseif try_depth == 0 && is_throw_call(s)
+                for j in last_br+1:i-1
+                    push!(stmts, j)
+                end
+            end
+        elseif isa(s, GotoNode) || isa(s, ReturnNode) || isa(s, GotoIfNot)
+            last_br = i
+        end
+    end
+    return stmts
+end
+
 # using a function to ensure we can infer this
 @inline slot_id(s) = isa(s, SlotNumber) ? (s::SlotNumber).id : (s::TypedSlot).id
 

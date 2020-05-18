@@ -20,6 +20,9 @@ call_result_unused(frame::InferenceState, pc::LineNum=frame.currpc) =
 
 function abstract_call_gf_by_type(interp::AbstractInterpreter, @nospecialize(f), argtypes::Vector{Any}, @nospecialize(atype), sv::InferenceState,
                                   max_methods = InferenceParams(interp).MAX_METHODS)
+    if sv.currpc in sv.throw_blocks
+        return Any
+    end
     atype_params = unwrap_unionall(atype).parameters
     ft = unwrap_unionall(atype_params[1]) # TODO: ccall jl_method_table_for here
     isa(ft, DataType) || return Any # the function being called is unknown. can't properly handle this backedge right now
