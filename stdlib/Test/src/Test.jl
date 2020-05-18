@@ -1441,7 +1441,7 @@ function detect_ambiguities(mods...;
                 for m in mt
                     for m2 in Base._methods_by_ftype(m.sig, -1, typemax(UInt), UInt[typemin(UInt)], UInt[typemax(UInt)], true)
                         m2 = m2[3]
-                        if m !== m2 && !(Base.morespecific(m.sig, m2.sig) || Base.morespecific(m2.sig, m.sig)) && Base.isambiguous(m, m2, ambiguous_bottom=ambiguous_bottom)
+                        if Base.isambiguous(m, m2, ambiguous_bottom=ambiguous_bottom)
                             push!(ambs, sortdefs(m, m2))
                         end
                     end
@@ -1463,7 +1463,7 @@ function detect_ambiguities(mods...;
             if is_in_mods(m.module)
                 for m2 in Base._methods_by_ftype(m.sig, -1, typemax(UInt), UInt[typemin(UInt)], UInt[typemax(UInt)], true)
                     m2 = m2[3]
-                    if m !== m2 && !(Base.morespecific(m.sig, m2.sig) || Base.morespecific(m2.sig, m.sig)) && Base.isambiguous(m, m2, ambiguous_bottom=ambiguous_bottom)
+                    if Base.isambiguous(m, m2, ambiguous_bottom=ambiguous_bottom)
                         push!(ambs, sortdefs(m, m2))
                     end
                 end

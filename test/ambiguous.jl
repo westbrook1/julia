@@ -36,7 +36,7 @@ getline(m::Method) = m.line - lineoffset
 
 @test length(methods(ambig, (Int, Int))) == 1
 @test length(methods(ambig, (UInt8, Int))) == 0
-@test length(Base.methods_including_ambiguous(ambig, (UInt8, Int))) == 2
+@test length(Base.methods_including_ambiguous(ambig, (UInt8, Int))) == 3
 
 @test ambig("hi", "there") == 1
 @test ambig(3.1, 3.2) == 5
@@ -58,11 +58,13 @@ let err = try
     Base.showerror(io, err)
     lines = split(String(take!(io)), '\n')
     ambig_checkline(str) = startswith(str, "  ambig(x, y::Integer) in $curmod_str at") ||
-                           startswith(str, "  ambig(x::Integer, y) in $curmod_str at")
+                           startswith(str, "  ambig(x::Integer, y) in $curmod_str at") ||
+                           startswith(str, "  ambig(x::Number, y) in $curmod_str at")
     @test ambig_checkline(lines[2])
     @test ambig_checkline(lines[3])
-    @test lines[4] == "Possible fix, define"
-    @test lines[5] == "  ambig(::Integer, ::Integer)"
+    @test ambig_checkline(lines[4])
+    @test lines[5] == "Possible fix, define"
+    @test lines[6] == "  ambig(::Integer, ::Integer)"
 end
 
 ambig_with_bounds(x, ::Int, ::T) where {T<:Integer,S} = 0

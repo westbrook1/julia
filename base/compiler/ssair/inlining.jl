@@ -1030,6 +1030,8 @@ function assemble_inline_todo!(ir::IRCode, sv::OptimizationState)
             continue
         end
         # reject result if any ambiguities seen to arise in the results
+        # TODO: might make more sense to do this after the union-split
+        #       since we might reject this there anyways for a trivial reason
         ambig = false
         for i in 1:length(meth)
             matc1 = meth[i]

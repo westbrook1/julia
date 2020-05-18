@@ -1251,11 +1251,10 @@ end
 """
     Base.isambiguous(m1, m2; ambiguous_bottom=false) -> Bool
 
-Determine whether two methods `m1` and `m2` (typically of the same
-function) are ambiguous.  This test is performed in the context of
-other methods of the same function; in isolation, `m1` and `m2` might
-be ambiguous, but if a third method resolving the ambiguity has been
-defined, this returns `false`.
+Determine whether two methods `m1` and `m2` may be ambiguous for some call
+signature. This test is performed in the context of other methods of the same
+function; in isolation, `m1` and `m2` might be ambiguous, but if a third method
+resolving the ambiguity has been defined, this returns `false`.
 
 For parametric types, the `ambiguous_bottom` keyword argument controls whether
 `Union{}` counts as an ambiguous intersection of type parameters – when `true`,
@@ -1282,6 +1281,12 @@ false
 ```
 """
 function isambiguous(m1::Method, m2::Method; ambiguous_bottom::Bool=false)
+    # TODO: eagerly returning `morespecific` is wrong, and fails to consider
+    # the possibility of an ambiguity caused by a third method:
+    # see the precise algorithm in ml_matches for a more correct computation
+    if m1 === m2 || morespecific(m1.sig, m2.sig) || morespecific(m2.sig, m1.sig)
+        return false
+    end
     ti = typeintersect(m1.sig, m2.sig)
     ti === Bottom && return false
     if !ambiguous_bottom
@@ -1290,7 +1295,7 @@ function isambiguous(m1::Method, m2::Method; ambiguous_bottom::Bool=false)
     ml = _methods_by_ftype(ti, -1, typemax(UInt))
     isempty(ml) && return true
     for m in ml
-        if ti <: m[3].sig
+        if ti <: m[3].sig && morespecific(m[3].sig, m1.sig) && morespecific(m[3].sig, m2.sig)
             return false
         end
     end

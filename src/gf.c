@@ -2192,7 +2192,7 @@ static jl_value_t *_gf_invoke_lookup(jl_value_t *types JL_PROPAGATES_ROOT, size_
     size_t len = jl_array_len(matches);
     if (len == 0)
         return NULL;
-    // last entry is a subtype, if any are
+    // last entry is the first subtype
     jl_value_t *matc = jl_array_ptr_ref(matches, len - 1);
     jl_method_t *m = (jl_method_t*)jl_svecref(matc, 2);
     JL_GC_PUSH1(&matc);
@@ -2397,7 +2397,7 @@ struct ml_matches_env {
     size_t max_valid;
     // temporary:
     jl_svec_t *matc; // current working svec
-    jl_svec_t *worst; // current least specific match
+    jl_method_t *worstm; // current least specific match
 };
 
 static int ml_matches_visitor(jl_typemap_entry_t *ml, struct typemap_intersection_env *closure0)
@@ -2423,31 +2423,28 @@ static int ml_matches_visitor(jl_typemap_entry_t *ml, struct typemap_intersectio
             closure->max_valid = ml->max_world;
     }
     jl_method_t *meth = ml->func.method;
-    if (closure0->issubty) {
-        // might be a new candidate for our current worst match
-        // (we stop returning matches once we have the best subtype)
-        if (closure->worst) {
-            jl_method_t *m2 = (jl_method_t*)jl_svecref(closure->worst, 2);
-            if (jl_type_morespecific((jl_value_t*)m2->sig, (jl_value_t*)meth->sig))
-                return 1; // prefer the existing one
-            if (!jl_type_morespecific((jl_value_t*)meth->sig, (jl_value_t*)m2->sig))
-                // handle ambiguity: neither is preferable
-                closure0->issubty = 0;
-        }
-    }
+    //if (closure0->issubty) {
+    //    // might be a new candidate for our current worst match
+    //    // (we eagerly ignore some matches once we have morespecific subtype)
+    //    // TODO: this might make it harder to completely return complex ambiguities?
+    //    if (closure->worstm) {
+    //        jl_method_t *m2 = (jl_method_t*)closure->worstm;
+    //        if (jl_type_morespecific((jl_value_t*)m2->sig, (jl_value_t*)meth->sig))
+    //            return 1; // prefer the existing one
+    //        if (!jl_type_morespecific((jl_value_t*)meth->sig, (jl_value_t*)m2->sig))
+    //            // handle ambiguity: neither is preferable
+    //            closure0->issubty = 0;
+    //    }
+    //    closure->worstm = meth;
+    //}
     closure->matc = jl_svec(3, closure->match.ti, closure->match.env, meth);
-    if (closure0->issubty) {
-        closure->worst = closure->matc;
+    size_t len = jl_array_len(closure->t);
+    if (len == 0) {
+        closure->t = (jl_value_t*)jl_alloc_vec_any(1);
+        jl_array_ptr_set(closure->t, 0, (jl_value_t*)closure->matc);
     }
     else {
-        size_t len = jl_array_len(closure->t);
-        if (len == 0) {
-            closure->t = (jl_value_t*)jl_alloc_vec_any(1);
-            jl_array_ptr_set(closure->t, 0, (jl_value_t*)closure->matc);
-        }
-        else {
-            jl_array_ptr_1d_push((jl_array_t*)closure->t, (jl_value_t*)closure->matc);
-        }
+        jl_array_ptr_1d_push((jl_array_t*)closure->t, (jl_value_t*)closure->matc);
     }
     return 1;
 }
@@ -2477,15 +2474,17 @@ static jl_value_t *ml_matches(jl_typemap_t *defs, int offs,
     env.match.env = jl_emptysvec;
     env.t = jl_an_empty_vec_any;
     env.matc = NULL;
+    env.worstm = NULL;
     env.min_valid = *min_valid;
     env.max_valid = *max_valid;
     struct jl_typemap_assoc search = {(jl_value_t*)type, world, jl_emptysvec, env.min_valid, env.max_valid};
-    JL_GC_PUSH6(&env.t, &env.matc, &env.match.env, &search.env, &env.match.ti, &env.worst);
+    JL_GC_PUSH5(&env.t, &env.matc, &env.match.env, &search.env, &env.match.ti);
     jl_typemap_intersection_visitor(defs, offs, &env.match);
     // done with many of these values now
     env.match.ti = NULL; env.matc = NULL; env.match.env = NULL; search.env = NULL;
     size_t i, j, len = jl_array_len(env.t);
     // need to partially domsort the graph now into a list
+    // (this is an insertion sort attempt)
     for (i = 1; i < len; i++) {
         env.matc = (jl_svec_t*)jl_array_ptr_ref(env.t, i);
         jl_method_t *m = (jl_method_t*)jl_svecref(env.matc, 2);
@@ -2498,64 +2497,128 @@ static jl_value_t *ml_matches(jl_typemap_t *defs, int offs,
         }
         jl_array_ptr_set(env.t, i - j, env.matc);
     }
-    // then append our last (removing any that got consumed by it--yes this non-transitivity really happens)
-    if (env.worst) {
-        jl_method_t *m = (jl_method_t*)jl_svecref(env.worst, 2);
-        while (len) {
-            jl_value_t *matc2 = jl_array_ptr_ref(env.t, len - 1);
-            if (matc2 != NULL) {
-                jl_method_t *m2 = (jl_method_t*)jl_svecref(matc2, 2);
-                if (!jl_type_morespecific((jl_value_t*)m->sig, (jl_value_t*)m2->sig))
-                    break;
-            }
-            jl_array_del_end((jl_array_t*)env.t, 1);
-            len--;
-        }
-        if (len == 0) {
-            env.t = (jl_value_t*)jl_alloc_vec_any(1);
-            jl_array_ptr_set(env.t, 0, (jl_value_t*)env.worst);
-        }
-        else {
-            jl_array_ptr_1d_push((jl_array_t*)env.t, (jl_value_t*)env.worst);
-        }
-        len++;
-    }
+    //// then append our last (subtype) match,
+    //// and removing any that got consumed by it--yes this non-transitivity really happens,
+    //// and without being part of an ambiguity cycle
+    //if (env.worst) {
+    //    jl_method_t *m = (jl_method_t*)jl_svecref(env.worst, 2);
+    //    while (len) {
+    //        jl_value_t *matc2 = jl_array_ptr_ref(env.t, len - 1);
+    //        if (matc2 != NULL) {
+    //            jl_method_t *m2 = (jl_method_t*)jl_svecref(matc2, 2);
+    //            if (!jl_type_morespecific((jl_value_t*)m->sig, (jl_value_t*)m2->sig))
+    //                break;
+    //        }
+    //        jl_array_del_end((jl_array_t*)env.t, 1);
+    //        len--;
+    //    }
+    //    if (len == 0) {
+    //        env.t = (jl_value_t*)jl_alloc_vec_any(1);
+    //        jl_array_ptr_set(env.t, 0, (jl_value_t*)env.worstm);
+    //    }
+    //    else {
+    //        jl_array_ptr_1d_push((jl_array_t*)env.t, (jl_value_t*)env.worstm);
+    //    }
+    //    len++;
+    //}
     if (len > 1) {
-        // then check for (and remove) for full ambiguities
-        if (!include_ambiguous) {
-            for (i = 1; i < len; i++) {
-                jl_value_t *matc = jl_array_ptr_ref(env.t, i);
-                jl_method_t *m = (jl_method_t*)jl_svecref(matc, 2);
-                jl_value_t *ti = jl_svecref(matc, 0);
-                jl_value_t *matc2 = jl_array_ptr_ref(env.t, i - 1);
-                if (matc2 == NULL)
-                    continue; // XXX: this has numerous problems, but we'll worry about that later
+        // now that the results are (mostly) sorted, assign group numbers to each ambiguity
+        // by computing the specificity-ambiguity matrix covering this query
+        uint32_t *ambig_groupid = (uint32_t*)alloca(len * sizeof(uint32_t));
+        char *skip = (char*)alloca(len);
+        memset(skip, 0, len);
+        ambig_groupid[0] = 0;
+        for (i = 1; i < len; i++) {
+            ambig_groupid[i] = i;
+            jl_value_t *matc = jl_array_ptr_ref(env.t, i);
+            jl_method_t *m = (jl_method_t*)jl_svecref(matc, 2);
+            for (j = i; j > 0; j--) {
+                jl_value_t *matc2 = jl_array_ptr_ref(env.t, j - 1);
                 jl_method_t *m2 = (jl_method_t*)jl_svecref(matc2, 2);
-                jl_value_t *ti2 = jl_svecref(matc2, 0);
-                if (!jl_type_morespecific((jl_value_t*)m2->sig, (jl_value_t*)m->sig)) {
-                    if (jl_subtype(ti, m2->sig))
-                        jl_array_ptr_set(env.t, i, NULL);
-                    if (jl_subtype(ti2, m->sig))
-                        jl_array_ptr_set(env.t, i - 1, NULL);
+                if (!jl_has_empty_intersection(m->sig, m2->sig)) {
+                    if (!jl_type_morespecific((jl_value_t*)m2->sig, (jl_value_t*)m->sig))
+                        ambig_groupid[i] = j - 1; // ambiguity covering range [i:j)
                 }
+            }
+        }
+        // then we'll merge those numbers to assign each item in the group the same number
+        uint32_t groupid = 0;
+        uint32_t grouphi = 0;
+        for (i = 0; i < len; i++) {
+            j = len - i - 1;
+            uint32_t agid = ambig_groupid[j];
+            if (agid != j) { // thus agid < j
+                if (grouphi == 0) {
+                    groupid = agid;
+                    grouphi = j;
+                }
+                else if (agid < groupid) {
+                    groupid = agid;
+                }
+            }
+            if (grouphi && j == groupid) {
+                do {
+                    ambig_groupid[grouphi--] = groupid;
+                } while (grouphi > j);
+                ambig_groupid[j] = groupid;
+                groupid = 0;
+                grouphi = 0;
+            }
+        }
+        // If we're only returning possible matches, now filter out any method
+        // whose intersection is ambiguous with the group it is in.
+        if (!include_ambiguous) {
+            for (i = 0; i < len; i++) {
+                uint32_t agid = ambig_groupid[i];
+                jl_value_t *matc = jl_array_ptr_ref(env.t, i);
+                jl_value_t *ti = jl_svecref(matc, 0);
+                char ambig1 = 0;
+                for (j = agid; j < len && ambig_groupid[j] == agid; j++) {
+                    if (j == i)
+                        continue;
+                    jl_value_t *matc2 = jl_array_ptr_ref(env.t, j);
+                    jl_method_t *m2 = (jl_method_t*)jl_svecref(matc2, 2);
+                    if (!jl_has_empty_intersection(ti, m2->sig)) {
+                        if (jl_subtype(ti, m2->sig)) {
+                            ambig1 = 1;
+                        }
+                        else {
+                            ambig1 = 0;
+                            break;
+                        }
+                    }
+                }
+                if (ambig1)
+                    skip[i] = 1;
+            }
+        }
+        // always remove matches after the first subtype, now that we've sorted the list for ambiguities
+        for (i = 0; i < len; i++) {
+            jl_value_t *matc = jl_array_ptr_ref(env.t, i);
+            jl_method_t *m = (jl_method_t*)jl_svecref(matc, 2);
+            if (jl_subtype((jl_value_t*)type, (jl_value_t*)m->sig)) {
+                uint32_t agid = ambig_groupid[i];
+                while (i < len && agid == ambig_groupid[i])
+                    i++; // keep ambiguous ones
+                for (; i < len; i++)
+                    skip[i] = 1; // drop the rest
             }
         }
         // when limited, skip matches that are covered by earlier ones (and aren't ambiguous with them)
         if (lim >= 0) {
             for (i = 0; i < len; i++) {
-                jl_value_t *matc = jl_array_ptr_ref(env.t, i);
-                if (matc == NULL)
+                if (skip[i])
                     continue;
+                jl_value_t *matc = jl_array_ptr_ref(env.t, i);
                 jl_value_t *ti = jl_svecref(matc, 0);
-                jl_method_t *m = (jl_method_t*)jl_svecref(matc, 2);
                 for (j = 0; j < i; j++) {
-                    jl_value_t *matc2 = jl_array_ptr_ref(env.t, j);
-                    if (matc2 == NULL)
+                    if (skip[j])
                         continue;
+                    jl_value_t *matc2 = jl_array_ptr_ref(env.t, j);
                     jl_method_t *m2 = (jl_method_t*)jl_svecref(matc2, 2);
                     if (jl_subtype(ti, m2->sig)) {
-                        if (!include_ambiguous || jl_type_morespecific((jl_value_t*)m2->sig, (jl_value_t*)m->sig)) {
-                            jl_array_ptr_set(env.t, i, NULL);
+                        if (!include_ambiguous || ambig_groupid[i] != ambig_groupid[j]) {
+                            skip[i] = 1;
                             break;
                         }
                     }
@@ -2565,7 +2628,7 @@ static jl_value_t *ml_matches(jl_typemap_t *defs, int offs,
         // cleanup array
         for (i = 0, j = 0; i < len; i++) {
             jl_value_t *matc = jl_array_ptr_ref(env.t, i);
-            if (matc != NULL)
+            if (!skip[i])
                 jl_array_ptr_set(env.t, j++, matc);
         }
         if (j != len)
