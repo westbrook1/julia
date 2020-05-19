@@ -2397,7 +2397,6 @@ struct ml_matches_env {
     size_t max_valid;
     // temporary:
     jl_svec_t *matc; // current working svec
-    jl_method_t *worstm; // current least specific match
 };
 
 static int ml_matches_visitor(jl_typemap_entry_t *ml, struct typemap_intersection_env *closure0)
@@ -2423,20 +2422,6 @@ static int ml_matches_visitor(jl_typemap_entry_t *ml, struct typemap_intersectio
             closure->max_valid = ml->max_world;
     }
     jl_method_t *meth = ml->func.method;
-    //if (closure0->issubty) {
-    //    // might be a new candidate for our current worst match
-    //    // (we eagerly ignore some matches once we have morespecific subtype)
-    //    // TODO: this might make it harder to completely return complex ambiguities?
-    //    if (closure->worstm) {
-    //        jl_method_t *m2 = (jl_method_t*)closure->worstm;
-    //        if (jl_type_morespecific((jl_value_t*)m2->sig, (jl_value_t*)meth->sig))
-    //            return 1; // prefer the existing one
-    //        if (!jl_type_morespecific((jl_value_t*)meth->sig, (jl_value_t*)m2->sig))
-    //            // handle ambiguity: neither is preferable
-    //            closure0->issubty = 0;
-    //    }
-    //    closure->worstm = meth;
-    //}
     closure->matc = jl_svec(3, closure->match.ti, closure->match.env, meth);
     size_t len = jl_array_len(closure->t);
     if (len == 0) {
@@ -2474,7 +2459,6 @@ static jl_value_t *ml_matches(jl_typemap_t *defs, int offs,
     env.match.env = jl_emptysvec;
     env.t = jl_an_empty_vec_any;
     env.matc = NULL;
-    env.worstm = NULL;
     env.min_valid = *min_valid;
     env.max_valid = *max_valid;
     struct jl_typemap_assoc search = {(jl_value_t*)type, world, jl_emptysvec, env.min_valid, env.max_valid};
@@ -2497,30 +2481,6 @@ static jl_value_t *ml_matches(jl_typemap_t *defs, int offs,
         }
         jl_array_ptr_set(env.t, i - j, env.matc);
     }
-    //// then append our last (subtype) match,
-    //// and removing any that got consumed by it--yes this non-transitivity really happens,
-    //// and without being part of an ambiguity cycle
-    //if (env.worst) {
-    //    jl_method_t *m = (jl_method_t*)jl_svecref(env.worst, 2);
-    //    while (len) {
-    //        jl_value_t *matc2 = jl_array_ptr_ref(env.t, len - 1);
-    //        if (matc2 != NULL) {
-    //            jl_method_t *m2 = (jl_method_t*)jl_svecref(matc2, 2);
-    //            if (!jl_type_morespecific((jl_value_t*)m->sig, (jl_value_t*)m2->sig))
-    //                break;
-    //        }
-    //        jl_array_del_end((jl_array_t*)env.t, 1);
-    //        len--;
-    //    }
-    //    if (len == 0) {
-    //        env.t = (jl_value_t*)jl_alloc_vec_any(1);
-    //        jl_array_ptr_set(env.t, 0, (jl_value_t*)env.worstm);
-    //    }
-    //    else {
-    //        jl_array_ptr_1d_push((jl_array_t*)env.t, (jl_value_t*)env.worstm);
-    //    }
-    //    len++;
-    //}
     if (len > 1) {
         // now that the results are (mostly) sorted, assign group numbers to each ambiguity
         // by computing the specificity-ambiguity matrix covering this query
@@ -2598,8 +2558,10 @@ static jl_value_t *ml_matches(jl_typemap_t *defs, int offs,
             jl_method_t *m = (jl_method_t*)jl_svecref(matc, 2);
             if (jl_subtype((jl_value_t*)type, (jl_value_t*)m->sig)) {
                 uint32_t agid = ambig_groupid[i];
-                while (i < len && agid == ambig_groupid[i])
+                while (i < len && agid == ambig_groupid[i]) {
                     i++; // keep ambiguous ones
+                }
+                // XXX: reshuffle subtypes to the end of the group here
                 for (; i < len; i++)
                     skip[i] = 1; // drop the rest
             }

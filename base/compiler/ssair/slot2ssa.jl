@@ -43,7 +43,6 @@ function lift_defuse(cfg::CFG, defuse)
     end
 end
 
-@inline slot_id(s) = isa(s, SlotNumber) ? (s::SlotNumber).id : (s::TypedSlot).id
 function scan_slot_def_use(nargs::Int, ci::CodeInfo, code::Vector{Any})
     nslots = length(ci.slotflags)
     result = SlotInfo[SlotInfo() for i = 1:nslots]
@@ -83,10 +82,6 @@ function make_ssa!(ci::CodeInfo, code::Vector{Any}, idx, slot, @nospecialize(typ
     ci.ssavaluetypes[idx] = typ
     idx
 end
-
-struct UndefToken
-end
-const undef_token = UndefToken()
 
 function new_to_regular(@nospecialize(stmt), new_offset::Int)
     if isa(stmt, NewSSAValue)
