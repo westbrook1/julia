@@ -2199,10 +2199,11 @@ static jl_value_t *_gf_invoke_lookup(jl_value_t *types JL_PROPAGATES_ROOT, size_
     if (!jl_subtype(types, m->sig))
         matc = NULL;
     if (matc && len > 1) {
-        // approximate ambiguity test (could be improved?)
+        // ambiguity test: this depends on the knowledge of exactly how ml_matches sorts the results
+        // to avoiding repeating unnecessary work to check the matches for ambiguities
         jl_value_t *matc2 = jl_array_ptr_ref(matches, len - 2);
         jl_method_t *m2 = (jl_method_t*)jl_svecref(matc2, 2);
-        if (jl_subtype(types, m2->sig) && !jl_type_morespecific((jl_value_t*)m->sig, (jl_value_t*)m2->sig))
+        if (jl_subtype(types, m2->sig))
             matc = NULL;
     }
     JL_GC_POP();
@@ -2558,10 +2559,35 @@ static jl_value_t *ml_matches(jl_typemap_t *defs, int offs,
             jl_method_t *m = (jl_method_t*)jl_svecref(matc, 2);
             if (jl_subtype((jl_value_t*)type, (jl_value_t*)m->sig)) {
                 uint32_t agid = ambig_groupid[i];
+                size_t lo = i;
                 while (i < len && agid == ambig_groupid[i]) {
                     i++; // keep ambiguous ones
                 }
-                // XXX: reshuffle subtypes to the end of the group here
+                // reshuffle this subtype to the end of the group here
+                // (this property is used by gf_invoke_lookup)
+                size_t hi = i - 1;
+                if (hi > lo) {
+                    jl_array_ptr_set(env.t, lo, jl_array_ptr_ref(env.t, hi));
+                    jl_array_ptr_set(env.t, hi, matc);
+                    char skiplo = skip[lo];
+                    skip[lo] = skip[hi];
+                    skip[hi] = skiplo;
+                    hi--;
+                    while (lo < hi) {
+                        matc = jl_array_ptr_ref(env.t, lo);
+                        m = (jl_method_t*)jl_svecref(matc, 2);
+                        if (jl_subtype((jl_value_t*)type, (jl_value_t*)m->sig)) {
+                            jl_array_ptr_set(env.t, lo, jl_array_ptr_ref(env.t, hi));
+                            jl_array_ptr_set(env.t, hi, matc);
+                            skip[lo] = skip[hi];
+                            skip[hi] = skiplo;
+                            hi--;
+                        }
+                        else {
+                            lo++;
+                        }
+                    }
+                }
                 for (; i < len; i++)
                     skip[i] = 1; // drop the rest
             }
