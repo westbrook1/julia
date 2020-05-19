@@ -1039,14 +1039,15 @@ function assemble_inline_todo!(ir::IRCode, sv::OptimizationState)
             for j in (i + 1):length(meth)
                 matc2 = meth[j]
                 m2 = matc2[3]::Method
-                matc1[1] <: m2.sig && break
                 ti12 = typeintersect(m1.sig, m2.sig)
                 if ti12 !== Union{} && !morespecific(m1.sig, m2.sig)
                     # check if this ambiguity is covered by an earlier method
                     # this is an optimal version of calling `isambiguous(m1, m2, ambiguous_bottom=true)`
                     ambig = true
                     for k in 1:(i - 1)
-                        if ti12 <: (meth[k][3]::Method).sig
+                        matc3 = meth[k]
+                        m3 = matc3[3]::Method
+                        if ti12 <: m3.sig && morespecific(m3.sig, m1.sig) && morespecific(m3.sig, m2.sig)
                             ambig = false
                             break
                         end
