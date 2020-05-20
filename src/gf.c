@@ -2383,7 +2383,7 @@ struct ml_matches_env {
     int intersections;
     size_t world;
     // results:
-    jl_value_t *t; // array of svec(argtypes, params, Method)
+    jl_value_t *t; // array of svec(argtypes, params, Method, fully-covers)
     size_t min_valid;
     size_t max_valid;
     // temporary:
@@ -2415,7 +2415,7 @@ static int ml_matches_visitor(jl_typemap_entry_t *ml, struct typemap_intersectio
             closure->max_valid = ml->max_world;
     }
     jl_method_t *meth = ml->func.method;
-    closure->matc = jl_svec(3, closure->match.ti, closure->match.env, meth);
+    closure->matc = jl_svec(4, closure->match.ti, closure->match.env, meth, closure->match.issubty ? jl_true : jl_false);
     size_t len = jl_array_len(closure->t);
     if (len == 0) {
         closure->t = (jl_value_t*)jl_alloc_vec_any(1);
@@ -2559,8 +2559,7 @@ static jl_value_t *ml_matches(jl_typemap_t *defs, int offs,
         // always remove matches after the first subtype, now that we've sorted the list for ambiguities
         for (i = 0; i < len; i++) {
             jl_value_t *matc = jl_array_ptr_ref(env.t, i);
-            jl_method_t *m = (jl_method_t*)jl_svecref(matc, 2);
-            if (jl_subtype((jl_value_t*)type, (jl_value_t*)m->sig)) {
+            if (jl_svecref(matc, 3) == jl_true) { // jl_subtype((jl_value_t*)type, (jl_value_t*)m->sig)
                 uint32_t agid = ambig_groupid[i];
                 size_t lo = i;
                 while (i < len && agid == ambig_groupid[i]) {
@@ -2576,13 +2575,16 @@ static jl_value_t *ml_matches(jl_typemap_t *defs, int offs,
                     skip[hi] = skiplo;
                     hi--;
                     while (lo < hi) {
+                        if (skip[lo]) {
+                            lo++;
+                            continue;
+                        }
                         matc = jl_array_ptr_ref(env.t, lo);
-                        m = (jl_method_t*)jl_svecref(matc, 2);
-                        if (jl_subtype((jl_value_t*)type, (jl_value_t*)m->sig)) {
+                        if (jl_svecref(matc, 3) == jl_true) { // jl_subtype((jl_value_t*)type, (jl_value_t*)m->sig)
                             jl_array_ptr_set(env.t, lo, jl_array_ptr_ref(env.t, hi));
                             jl_array_ptr_set(env.t, hi, matc);
                             skip[lo] = skip[hi];
-                            skip[hi] = skiplo;
+                            skip[hi] = 0; // skip[lo]
                             hi--;
                         }
                         else {
@@ -2602,8 +2604,6 @@ static jl_value_t *ml_matches(jl_typemap_t *defs, int offs,
                 jl_value_t *matc = jl_array_ptr_ref(env.t, i);
                 jl_value_t *ti = jl_svecref(matc, 0);
                 for (j = 0; j < i; j++) {
-                    if (skip[j])
-                        continue;
                     jl_value_t *matc2 = jl_array_ptr_ref(env.t, j);
                     jl_method_t *m2 = (jl_method_t*)jl_svecref(matc2, 2);
                     if (jl_subtype(ti, m2->sig)) {
