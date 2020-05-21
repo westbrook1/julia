@@ -1675,24 +1675,25 @@ jl_method_instance_t *jl_method_lookup(jl_value_t **args, size_t nargs, int cach
 }
 
 // return a Vector{Any} of svecs, each describing a method match:
-// Any[svec(tt, spvals, m), ...]
+// Any[svec(tt, spvals, m, full), ...]
 // tt is the intersection of the type argument and the method signature,
 // spvals is any matched static parameter values, m is the Method,
+// full is a boolean indicating if that method fully covers the input
 //
 // lim is the max # of methods to return. if there are more, returns jl_false.
 // -1 for no limit.
 JL_DLLEXPORT jl_value_t *jl_matching_methods(jl_tupletype_t *types, int lim, int include_ambiguous,
-                                             size_t world, size_t *min_valid, size_t *max_valid)
+                                             size_t world, size_t *min_valid, size_t *max_valid, int *ambig)
 {
     JL_TIMING(METHOD_MATCH);
+    *ambig = 0;
     jl_value_t *unw = jl_unwrap_unionall((jl_value_t*)types);
     if (jl_is_tuple_type(unw) && jl_tparam0(unw) == jl_bottom_type)
         return (jl_value_t*)jl_an_empty_vec_any;
     jl_methtable_t *mt = jl_method_table_for(unw);
     if ((jl_value_t*)mt == jl_nothing)
         return jl_false; // indeterminate - ml_matches can't deal with this case
-    int ambig = 0;
-    return ml_matches(mt->defs, 0, types, lim, include_ambiguous, 1, world, min_valid, max_valid, &ambig);
+    return ml_matches(mt->defs, 0, types, lim, include_ambiguous, 1, world, min_valid, max_valid, ambig);
 }
 
 jl_method_instance_t *jl_get_unspecialized(jl_method_instance_t *method JL_PROPAGATES_ROOT)
@@ -1831,8 +1832,9 @@ jl_method_instance_t *jl_get_specialization1(jl_tupletype_t *types JL_PROPAGATES
         return NULL;
 
     // find if exactly 1 method matches (issue #7302)
-    jl_value_t *matches = jl_matching_methods(types, 1, 1, world, min_valid, max_valid);
-    if (matches == jl_false || jl_array_len(matches) != 1)
+    int ambig = 0;
+    jl_value_t *matches = jl_matching_methods(types, 1, 0, world, min_valid, max_valid, &ambig);
+    if (matches == jl_false || jl_array_len(matches) != 1 || ambig)
         return NULL;
     jl_tupletype_t *tt = NULL;
     jl_svec_t *newparams = NULL;

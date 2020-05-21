@@ -1439,7 +1439,9 @@ function detect_ambiguities(mods...;
             elseif isa(f, DataType) && isdefined(f.name, :mt) && f.name.mt !== Symbol.name.mt
                 mt = Base.MethodList(f.name.mt)
                 for m in mt
-                    for m2 in Base._methods_by_ftype(m.sig, -1, typemax(UInt), UInt[typemin(UInt)], UInt[typemax(UInt)], true)
+                    ambig = Int32[0]
+                    for m2 in Base._methods_by_ftype(m.sig, -1, typemax(UInt), true, UInt[typemin(UInt)], UInt[typemax(UInt)], ambig)
+                        ambig[1] == 0 && break
                         m2 = m2[3]
                         if Base.isambiguous(m, m2, ambiguous_bottom=ambiguous_bottom)
                             push!(ambs, sortdefs(m, m2))
@@ -1461,7 +1463,9 @@ function detect_ambiguities(mods...;
     let mt = Base.MethodList(Symbol.name.mt)
         for m in mt
             if is_in_mods(m.module)
-                for m2 in Base._methods_by_ftype(m.sig, -1, typemax(UInt), UInt[typemin(UInt)], UInt[typemax(UInt)], true)
+                ambig = Int32[0]
+                for m2 in Base._methods_by_ftype(m.sig, -1, typemax(UInt), true, UInt[typemin(UInt)], UInt[typemax(UInt)], ambig)
+                    ambig[1] == 0 && break
                     m2 = m2[3]
                     if Base.isambiguous(m, m2, ambiguous_bottom=ambiguous_bottom)
                         push!(ambs, sortdefs(m, m2))

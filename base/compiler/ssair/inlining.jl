@@ -1013,7 +1013,7 @@ function assemble_inline_todo!(ir::IRCode, sv::OptimizationState)
         end
 
         # Regular case: Retrieve matching methods from cache (or compute them)
-        (meth, min_valid, max_valid) = begin
+        (meth, min_valid, max_valid, ambig) = get(sv.matching_methods_cache, sig.atype) do
             # World age does not need to be taken into account in the cache
             # because it is forwarded from type inference through `sv.params`
             # in the case that the cache is nonempty, so it should be unchanged
@@ -1021,43 +1021,16 @@ function assemble_inline_todo!(ir::IRCode, sv::OptimizationState)
             # of the time, and should not affect correctness otherwise.
             min_val = UInt[typemin(UInt)]
             max_val = UInt[typemax(UInt)]
+            ambig = Int32[0]
             ms = _methods_by_ftype(sig.atype, sv.params.MAX_METHODS,
-                                   sv.world, min_val, max_val, true)
-            (ms, min_val[1], max_val[1])
+                                   sv.world, false, min_val, max_val, ambig)
+            return (ms, min_val[1], max_val[1], ambig[1] != 0)
         end
-        if meth === false || length(meth) == 0
+        if meth === false || length(meth) == 0 || ambig
             # No applicable method, or too many applicable methods
+            # or contains some any ambiguities
             continue
         end
-        # reject result if any ambiguities seen to arise in the results
-        # TODO: might make more sense to do this after the union-split
-        #       since we might reject this there anyways for a trivial reason
-        ambig = false
-        for i in 1:length(meth)
-            matc1 = meth[i]
-            m1 = matc1[3]::Method
-            for j in (i + 1):length(meth)
-                matc2 = meth[j]
-                m2 = matc2[3]::Method
-                ti12 = typeintersect(m1.sig, m2.sig)
-                if ti12 !== Union{} && !morespecific(m1.sig, m2.sig)
-                    # check if this ambiguity is covered by an earlier method
-                    # this is an optimal version of calling `isambiguous(m1, m2, ambiguous_bottom=true)`
-                    ambig = true
-                    for k in 1:(i - 1)
-                        matc3 = meth[k]
-                        m3 = matc3[3]::Method
-                        if ti12 <: m3.sig && morespecific(m3.sig, m1.sig) && morespecific(m3.sig, m2.sig)
-                            ambig = false
-                            break
-                        end
-                    end
-                end
-                ambig && break
-            end
-            ambig && break
-        end
-        ambig && continue
         update_valid_age!(min_valid, max_valid, sv)
 
         cases = Pair{Any, Any}[]

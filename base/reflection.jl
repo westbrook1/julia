@@ -835,10 +835,10 @@ function _methods(@nospecialize(f), @nospecialize(t), lim::Int, world::UInt)
 end
 
 function _methods_by_ftype(@nospecialize(t), lim::Int, world::UInt)
-    return _methods_by_ftype(t, lim, world, UInt[typemin(UInt)], UInt[typemax(UInt)], false)
+    return _methods_by_ftype(t, lim, world, false, UInt[typemin(UInt)], UInt[typemax(UInt)], Cint[0])
 end
-function _methods_by_ftype(@nospecialize(t), lim::Int, world::UInt, min::Array{UInt,1}, max::Array{UInt,1}, ambig::Bool)
-    return ccall(:jl_matching_methods, Any, (Any, Cint, Cint, UInt, Ptr{UInt}, Ptr{UInt}), t, lim, ambig, world, min, max)
+function _methods_by_ftype(@nospecialize(t), lim::Int, world::UInt, ambig::Bool, min::Array{UInt,1}, max::Array{UInt,1}, has_ambig::Array{Int32,1})
+    return ccall(:jl_matching_methods, Any, (Any, Cint, Cint, UInt, Ptr{UInt}, Ptr{UInt}, Ptr{Int32}), t, lim, ambig, world, min, max, has_ambig)::Union{Array{Any,1}, Bool}
 end
 
 # high-level, more convenient method lookup functions
@@ -895,7 +895,9 @@ function methods_including_ambiguous(@nospecialize(f), @nospecialize(t))
     world = typemax(UInt)
     min = UInt[typemin(UInt)]
     max = UInt[typemax(UInt)]
-    ms = ccall(:jl_matching_methods, Any, (Any, Cint, Cint, UInt, Ptr{UInt}, Ptr{UInt}), tt, -1, 1, world, min, max)::Array{Any,1}
+    has_ambig = Int32[0]
+    ms = _methods_by_ftype(tt, -1, world, true, min, max, has_ambig)
+    ms === false && return false
     return MethodList(Method[m[3] for m in ms], typeof(f).name.mt)
 end
 
