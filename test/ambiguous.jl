@@ -262,10 +262,12 @@ g(::Union{typeof(pi), Integer}) =  1
 g(::Union{AbstractIrrational, Int}) =  2
 struct Irrational2 <: AbstractIrrational; end
 end
-@test_broken isempty(methods(Ambig8.f, (Int,)))
+@test isempty(methods(Ambig8.f, (Int,)))
 @test isempty(methods(Ambig8.g, (Int,)))
 for f in (Ambig8.f, Ambig8.g)
     @test length(methods(f, (Integer,))) == 2
+    @test length(methods(f, (Signed,))) == 2
+    @test length(Base.methods_including_ambiguous(f, (Signed,))) == 3
     @test f(0x00) == 1
     @test f(Ambig8.Irrational2()) == 2
     @test f(MathConstants.γ) == 3
