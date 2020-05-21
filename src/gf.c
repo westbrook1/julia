@@ -2471,7 +2471,7 @@ static jl_value_t *ml_matches(jl_typemap_t *defs, int offs,
     if (len > 1) {
         // first try to pre-process the results to find the most specific result that fully covers the input
         // (since we can do this in linear time, and the rest is O(n^2)
-        //   - first find a candidate for the best of these
+        //   - first see if this might even be profitable, given the requested output we need to compute
         jl_svec_t *minmax = NULL;
         int minmax_ambig = 0;
         int all_subtypes = 1;
@@ -2482,57 +2482,59 @@ static jl_value_t *ml_matches(jl_typemap_t *defs, int offs,
                 break;
             }
         }
-        //if (all_subtypes || !include_ambiguous) {
-        for (i = 0; i < len; i++) {
-            jl_svec_t *matc = (jl_svec_t*)jl_array_ptr_ref(env.t, i);
-            if (jl_svecref(matc, 3) == jl_true) {
-                jl_method_t *m = (jl_method_t*)jl_svecref(matc, 2);
-                if (minmax != NULL) {
-                    jl_method_t *minmaxm = (jl_method_t*)jl_svecref(minmax, 2);
-                    if (jl_type_morespecific((jl_value_t*)minmaxm->sig, (jl_value_t*)m->sig))
-                        continue;
-                }
-                minmax = matc;
-            }
-        }
-        //   - then see if it dominated all of the other choices
-        if (minmax != NULL) {
+        if (all_subtypes || !include_ambiguous) {
+            //   - then find a candidate for the best of these method results
             for (i = 0; i < len; i++) {
                 jl_svec_t *matc = (jl_svec_t*)jl_array_ptr_ref(env.t, i);
-                if (matc == minmax)
-                    break;
                 if (jl_svecref(matc, 3) == jl_true) {
                     jl_method_t *m = (jl_method_t*)jl_svecref(matc, 2);
-                    jl_method_t *minmaxm = (jl_method_t*)jl_svecref(minmax, 2);
-                    if (!jl_type_morespecific((jl_value_t*)minmaxm->sig, (jl_value_t*)m->sig)) {
-                        minmax_ambig = 1;
-                        *has_ambiguity = 1;
-                        if (include_ambiguous)
-                            minmax = NULL;
+                    if (minmax != NULL) {
+                        jl_method_t *minmaxm = (jl_method_t*)jl_svecref(minmax, 2);
+                        if (jl_type_morespecific((jl_value_t*)minmaxm->sig, (jl_value_t*)m->sig))
+                            continue;
+                    }
+                    minmax = matc;
+                }
+            }
+            //   - then see if it dominated all of the other choices
+            if (minmax != NULL) {
+                for (i = 0; i < len; i++) {
+                    jl_svec_t *matc = (jl_svec_t*)jl_array_ptr_ref(env.t, i);
+                    if (matc == minmax)
                         break;
+                    if (jl_svecref(matc, 3) == jl_true) {
+                        jl_method_t *m = (jl_method_t*)jl_svecref(matc, 2);
+                        jl_method_t *minmaxm = (jl_method_t*)jl_svecref(minmax, 2);
+                        if (!jl_type_morespecific((jl_value_t*)minmaxm->sig, (jl_value_t*)m->sig)) {
+                            minmax_ambig = 1;
+                            *has_ambiguity = 1;
+                            if (include_ambiguous)
+                                minmax = NULL;
+                            break;
+                        }
                     }
                 }
             }
-        }
-        if (all_subtypes) {
-            // fast-return: we often may be able to return the final answer now
-            if (minmax_ambig) {
-                if (!include_ambiguous) {
+            //    - now we might have a fast-return here, if we see that
+            //      we've already processed all of the possible outputs
+            if (all_subtypes) {
+                if (minmax_ambig) {
+                    if (!include_ambiguous) {
+                        JL_GC_POP();
+                        return jl_an_empty_vec_any;
+                    }
+                }
+                else {
+                    assert(minmax != NULL);
+                    jl_array_ptr_set(env.t, 0, minmax);
+                    jl_array_del_end((jl_array_t*)env.t, len - 1);
                     JL_GC_POP();
-                    return jl_an_empty_vec_any;
+                    if (lim == 0)
+                        return jl_false;
+                    return env.t;
                 }
             }
-            else {
-                assert(minmax != NULL);
-                jl_array_ptr_set(env.t, 0, minmax);
-                jl_array_del_end((jl_array_t*)env.t, len - 1);
-                JL_GC_POP();
-                if (lim == 0)
-                    return jl_false;
-                return env.t;
-            }
         }
-        // }
         // need to partially domsort the graph now into a list
         // (this is an insertion sort attempt)
         // if we have a minmax method, we ignore anything less specific
@@ -2566,7 +2568,8 @@ static jl_value_t *ml_matches(jl_typemap_t *defs, int offs,
                 }
             }
         }
-        else if (minmax != NULL && (all_subtypes || !include_ambiguous)) {
+        else if (minmax != NULL) {
+            assert(all_subtypes || !include_ambiguous);
             for (i = 0; i < len; i++) {
                 jl_svec_t *matc = (jl_svec_t*)jl_array_ptr_ref(env.t, i);
                 if (minmax != matc && jl_svecref(matc, 3) == jl_true) {
