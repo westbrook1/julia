@@ -265,8 +265,8 @@ end
 @test isempty(methods(Ambig8.f, (Int,)))
 @test isempty(methods(Ambig8.g, (Int,)))
 for f in (Ambig8.f, Ambig8.g)
-    @test length(methods(f, (Integer,))) == 2
-    @test length(methods(f, (Signed,))) == 2
+    @test length(methods(f, (Integer,))) == 2 # 1 is also acceptable
+    @test length(methods(f, (Signed,))) == 1 # 2 is also acceptable
     @test length(Base.methods_including_ambiguous(f, (Signed,))) == 3
     @test f(0x00) == 1
     @test f(Ambig8.Irrational2()) == 2

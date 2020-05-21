@@ -2192,7 +2192,7 @@ static jl_value_t *_gf_invoke_lookup(jl_value_t *types JL_PROPAGATES_ROOT, size_
     jl_methtable_t *mt = jl_method_table_for(unw);
     if ((jl_value_t*)mt == jl_nothing)
         return NULL;
-    jl_value_t *matches = ml_matches(mt->defs, 0, (jl_tupletype_t*)types, 1, 1, 0, world, &min_valid, &max_valid);
+    jl_value_t *matches = ml_matches(mt->defs, 0, (jl_tupletype_t*)types, 1, 0, 0, world, &min_valid, &max_valid);
     if (matches == jl_false || jl_array_len(matches) != 1)
         return NULL;
     jl_value_t *matc = jl_array_ptr_ref(matches, 0);
@@ -2520,6 +2520,8 @@ static jl_value_t *ml_matches(jl_typemap_t *defs, int offs,
                 jl_array_ptr_set(env.t, 0, minmax);
                 jl_array_del_end((jl_array_t*)env.t, len - 1);
                 JL_GC_POP();
+                if (lim == 0)
+                    return jl_false;
                 return env.t;
             }
         }
