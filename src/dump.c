@@ -851,8 +851,6 @@ static void jl_serialize_value_(jl_serializer_state *s, jl_value_t *v, int as_li
         write_uint8(s->s, internal);
         if (!internal)
             return;
-        jl_methtable_t *mt = jl_method_table_for((jl_value_t*)m->sig);
-        assert((jl_value_t*)mt != jl_nothing);
         jl_serialize_value(s, m->specializations);
         jl_serialize_value(s, m->speckeyset);
         jl_serialize_value(s, (jl_value_t*)m->name);

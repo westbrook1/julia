@@ -545,7 +545,8 @@ jl_value_t *jl_nth_slot_type(jl_value_t *sig, size_t i)
 
 static jl_value_t *ml_matches(jl_typemap_t *ml, int offs,
                               jl_tupletype_t *type, int lim, int include_ambiguous,
-                              int intersections, size_t world, size_t *min_valid, size_t *max_valid);
+                              int intersections, size_t world,
+                              size_t *min_valid, size_t *max_valid, int *has_ambiguity);
 
 // get the compilation signature specialization for this method
 static void jl_compilation_sig(
@@ -976,7 +977,8 @@ static jl_method_instance_t *cache_method(
     if (!cache_with_orig && mt) {
         // now examine what will happen if we chose to use this sig in the cache
         // TODO: should we first check `compilationsig <: definition`?
-        temp = ml_matches(mt->defs, 0, compilationsig, MAX_UNSPECIALIZED_CONFLICTS, 1, 1, world, &min_valid, &max_valid);
+        int ambig = 0;
+        temp = ml_matches(mt->defs, 0, compilationsig, MAX_UNSPECIALIZED_CONFLICTS, 1, 1, world, &min_valid, &max_valid, &ambig);
         int guards = 0;
         if (temp == jl_false) {
             cache_with_orig = 1;
@@ -1039,7 +1041,8 @@ static jl_method_instance_t *cache_method(
 
     if (cache_with_orig && mt) {
         // now examine defs to determine the min/max-valid range for this lookup result
-        (void)ml_matches(mt->defs, 0, cachett, -1, 0, 1, world, &min_valid, &max_valid);
+        int ambig = 0;
+        (void)ml_matches(mt->defs, 0, cachett, -1, 0, 1, world, &min_valid, &max_valid, &ambig);
     }
     assert(mt == NULL || min_valid > 1);
 
@@ -1688,7 +1691,8 @@ JL_DLLEXPORT jl_value_t *jl_matching_methods(jl_tupletype_t *types, int lim, int
     jl_methtable_t *mt = jl_method_table_for(unw);
     if ((jl_value_t*)mt == jl_nothing)
         return jl_false; // indeterminate - ml_matches can't deal with this case
-    return ml_matches(mt->defs, 0, types, lim, include_ambiguous, 1, world, min_valid, max_valid);
+    int ambig = 0;
+    return ml_matches(mt->defs, 0, types, lim, include_ambiguous, 1, world, min_valid, max_valid, &ambig);
 }
 
 jl_method_instance_t *jl_get_unspecialized(jl_method_instance_t *method JL_PROPAGATES_ROOT)
@@ -2192,7 +2196,8 @@ static jl_value_t *_gf_invoke_lookup(jl_value_t *types JL_PROPAGATES_ROOT, size_
     jl_methtable_t *mt = jl_method_table_for(unw);
     if ((jl_value_t*)mt == jl_nothing)
         return NULL;
-    jl_value_t *matches = ml_matches(mt->defs, 0, (jl_tupletype_t*)types, 1, 0, 0, world, &min_valid, &max_valid);
+    int ambig = 0;
+    jl_value_t *matches = ml_matches(mt->defs, 0, (jl_tupletype_t*)types, 1, 0, 0, world, &min_valid, &max_valid, &ambig);
     if (matches == jl_false || jl_array_len(matches) != 1)
         return NULL;
     jl_value_t *matc = jl_array_ptr_ref(matches, 0);
@@ -2434,7 +2439,8 @@ static int ml_matches_visitor(jl_typemap_entry_t *ml, struct typemap_intersectio
 // See below for the meaning of lim.
 static jl_value_t *ml_matches(jl_typemap_t *defs, int offs,
                               jl_tupletype_t *type, int lim, int include_ambiguous,
-                              int intersections, size_t world, size_t *min_valid, size_t *max_valid)
+                              int intersections, size_t world,
+                              size_t *min_valid, size_t *max_valid, int *has_ambiguity)
 {
     jl_value_t *unw = jl_unwrap_unionall((jl_value_t*)type);
     assert(jl_is_datatype(unw));
@@ -2500,6 +2506,7 @@ static jl_value_t *ml_matches(jl_typemap_t *defs, int offs,
                     jl_method_t *minmaxm = (jl_method_t*)jl_svecref(minmax, 2);
                     if (!jl_type_morespecific((jl_value_t*)minmaxm->sig, (jl_value_t*)m->sig)) {
                         minmax_ambig = 1;
+                        *has_ambiguity = 1;
                         if (include_ambiguous)
                             minmax = NULL;
                         break;
@@ -2618,6 +2625,49 @@ static jl_value_t *ml_matches(jl_typemap_t *defs, int offs,
                     skip[i] = 1; // drop the rest
             }
         }
+        // when limited, skip matches that are covered by earlier ones (and aren't perhaps ambiguous with them)
+        if (lim >= 0) {
+            for (i = 0; i < len; i++) {
+                if (skip[i])
+                    continue;
+                jl_value_t *matc = jl_array_ptr_ref(env.t, i);
+                jl_method_t *m = (jl_method_t*)jl_svecref(matc, 2);
+                jl_value_t *ti = jl_svecref(matc, 0);
+                for (j = 0; j < i; j++) {
+                    jl_value_t *matc2 = jl_array_ptr_ref(env.t, j);
+                    jl_method_t *m2 = (jl_method_t*)jl_svecref(matc2, 2);
+                    if (jl_subtype(ti, m2->sig)) {
+                        if (ambig_groupid[i] != ambig_groupid[j]) {
+                            skip[i] = 1;
+                            break;
+                        }
+                        else if (!include_ambiguous) {
+                            if (!jl_type_morespecific((jl_value_t*)m->sig, (jl_value_t*)m2->sig)) {
+                                skip[i] = 1;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Compute whether anything could be ambiguous by seeing if any two
+        // methods in the result are in the same ambiguity group.
+        for (i = 0; i < len; i++) {
+            if (!skip[i]) {
+                uint32_t agid = ambig_groupid[i];
+                for (; i < len; i++) {
+                    if (!skip[i]) {
+                        if (agid == ambig_groupid[i]) {
+                            *has_ambiguity = 1;
+                            break;
+                        }
+                        agid = ambig_groupid[i];
+                    }
+                }
+                break;
+            }
+        }
         // If we're only returning possible matches, now filter out any method
         // whose intersection is fully ambiguous with the group it is in.
         if (!include_ambiguous) {
@@ -2658,33 +2708,7 @@ static jl_value_t *ml_matches(jl_typemap_t *defs, int offs,
                     skip[i] = 1;
             }
         }
-        // when limited, skip matches that are covered by earlier ones (and aren't perhaps ambiguous with them)
-        if (lim >= 0) {
-            for (i = 0; i < len; i++) {
-                if (skip[i])
-                    continue;
-                jl_value_t *matc = jl_array_ptr_ref(env.t, i);
-                jl_method_t *m = (jl_method_t*)jl_svecref(matc, 2);
-                jl_value_t *ti = jl_svecref(matc, 0);
-                for (j = 0; j < i; j++) {
-                    jl_value_t *matc2 = jl_array_ptr_ref(env.t, j);
-                    jl_method_t *m2 = (jl_method_t*)jl_svecref(matc2, 2);
-                    if (jl_subtype(ti, m2->sig)) {
-                        if (ambig_groupid[i] != ambig_groupid[j]) {
-                            skip[i] = 1;
-                            break;
-                        }
-                        else if (!include_ambiguous) {
-                            if (!jl_type_morespecific((jl_value_t*)m->sig, (jl_value_t*)m2->sig)) {
-                                skip[i] = 1;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        // cleanup array
+        // cleanup array to remove skipped entries
         for (i = 0, j = 0; i < len; i++) {
             jl_value_t *matc = jl_array_ptr_ref(env.t, i);
             if (!skip[i])
