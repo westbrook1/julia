@@ -2471,6 +2471,14 @@ static jl_value_t *ml_matches(jl_typemap_t *defs, int offs,
         int all_subtypes = 1;
         for (i = 0; i < len; i++) {
             jl_svec_t *matc = (jl_svec_t*)jl_array_ptr_ref(env.t, i);
+            if (jl_svecref(matc, 3) != jl_true) {
+                all_subtypes = 0;
+                break;
+            }
+        }
+        //if (all_subtypes || !include_ambiguous) {
+        for (i = 0; i < len; i++) {
+            jl_svec_t *matc = (jl_svec_t*)jl_array_ptr_ref(env.t, i);
             if (jl_svecref(matc, 3) == jl_true) {
                 jl_method_t *m = (jl_method_t*)jl_svecref(matc, 2);
                 if (minmax != NULL) {
@@ -2479,9 +2487,6 @@ static jl_value_t *ml_matches(jl_typemap_t *defs, int offs,
                         continue;
                 }
                 minmax = matc;
-            }
-            else {
-                all_subtypes = 0;
             }
         }
         //   - then see if it dominated all of the other choices
@@ -2502,7 +2507,23 @@ static jl_value_t *ml_matches(jl_typemap_t *defs, int offs,
                 }
             }
         }
-        minmax = NULL;
+        if (all_subtypes) {
+            // fast-return: we often may be able to return the final answer now
+            if (minmax_ambig) {
+                if (!include_ambiguous) {
+                    JL_GC_POP();
+                    return jl_an_empty_vec_any;
+                }
+            }
+            else {
+                assert(minmax != NULL);
+                jl_array_ptr_set(env.t, 0, minmax);
+                jl_array_del_end((jl_array_t*)env.t, len - 1);
+                JL_GC_POP();
+                return env.t;
+            }
+        }
+        // }
         // need to partially domsort the graph now into a list
         // (this is an insertion sort attempt)
         // if we have a minmax method, we ignore anything less specific
@@ -2635,20 +2656,27 @@ static jl_value_t *ml_matches(jl_typemap_t *defs, int offs,
                     skip[i] = 1;
             }
         }
-        // when limited, skip matches that are covered by earlier ones (and aren't ambiguous with them)
+        // when limited, skip matches that are covered by earlier ones (and aren't perhaps ambiguous with them)
         if (lim >= 0) {
             for (i = 0; i < len; i++) {
                 if (skip[i])
                     continue;
                 jl_value_t *matc = jl_array_ptr_ref(env.t, i);
+                jl_method_t *m = (jl_method_t*)jl_svecref(matc, 2);
                 jl_value_t *ti = jl_svecref(matc, 0);
                 for (j = 0; j < i; j++) {
                     jl_value_t *matc2 = jl_array_ptr_ref(env.t, j);
                     jl_method_t *m2 = (jl_method_t*)jl_svecref(matc2, 2);
                     if (jl_subtype(ti, m2->sig)) {
-                        if (!include_ambiguous || ambig_groupid[i] != ambig_groupid[j]) {
+                        if (ambig_groupid[i] != ambig_groupid[j]) {
                             skip[i] = 1;
                             break;
+                        }
+                        else if (!include_ambiguous) {
+                            if (!jl_type_morespecific((jl_value_t*)m->sig, (jl_value_t*)m2->sig)) {
+                                skip[i] = 1;
+                                break;
+                            }
                         }
                     }
                 }
