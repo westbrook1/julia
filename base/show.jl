@@ -2373,7 +2373,7 @@ julia> summary(1)
 "Int64"
 
 julia> summary(zeros(2))
-"2-element Array{Float64,1}"
+"2-element Vector{Float64}"
 ```
 """
 summary(io::IO, x) = print(io, typeof(x))
