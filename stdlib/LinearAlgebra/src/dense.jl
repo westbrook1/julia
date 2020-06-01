@@ -1019,7 +1019,7 @@ this function, see [^AH16_1].
 # Examples
 ```jldoctest
 julia> acos(cos([0.5 0.1; -0.2 0.3]))
-2×2 Matrix{Complex{Float64}}:
+2×2 Matrix{ComplexF64}:
   0.5-8.32667e-17im  0.1+0.0im
  -0.2+2.63678e-16im  0.3-3.46945e-16im
 ```
@@ -1050,7 +1050,7 @@ see [^AH16_2].
 # Examples
 ```jldoctest
 julia> asin(sin([0.5 0.1; -0.2 0.3]))
-2×2 Matrix{Complex{Float64}}:
+2×2 Matrix{ComplexF64}:
   0.5-4.16334e-17im  0.1-5.55112e-17im
  -0.2+9.71445e-17im  0.3-1.249e-16im
 ```
@@ -1081,7 +1081,7 @@ compute the inverse tangent. Otherwise, the inverse tangent is determined by usi
 # Examples
 ```jldoctest
 julia> atan(tan([0.5 0.1; -0.2 0.3]))
-2×2 Matrix{Complex{Float64}}:
+2×2 Matrix{ComplexF64}:
   0.5+1.38778e-17im  0.1-2.77556e-17im
  -0.2+6.93889e-17im  0.3-4.16334e-17im
 ```

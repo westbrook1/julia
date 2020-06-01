@@ -543,11 +543,16 @@ function make_typealias(x::Type)
             if isdefined(mod, name) && !isdeprecated(mod, name) && isconst(mod, name)
                 alias = getfield(mod, name)
                 if alias isa Type && !has_free_typevars(alias) && !isvarargtype(alias) && !print_without_params(alias) && x <: alias
-                    if alias <: x
-                        env = Core.svec()
-                    elseif alias isa UnionAll
+                    if alias isa UnionAll
                         (ti, env) = ccall(:jl_type_intersection_with_env, Any, (Any, Any), x, alias)::SimpleVector
+                        # ti === Union{} && continue # impossible, since we already checked that x <: alias
                         env = env::SimpleVector
+                        # TODO: In some cases (such as the following), the `env` is over-approximated.
+                        #       We'd like to disable `fix_inferred_var_bound` since we'll already do that fix-up here.
+                        #       (or detect and reverse the compution of it here).
+                        #   T = Array{Array{T,1}, 1} where T
+                        #   (ti, env) = ccall(:jl_type_intersection_with_env, Any, (Any, Any), T, Vector)
+                        #   env[1].ub.var == T.var
                         applied = alias{env...}
                         for p in xenv
                             applied = rewrap_unionall(applied, p)
@@ -555,6 +560,8 @@ function make_typealias(x::Type)
                         applied = rewrap_unionall(applied, alias)
                         has_free_typevars(applied) && continue
                         applied == x || continue # it couldn't figure out the parameter matching
+                    elseif alias <: x
+                        env = Core.svec()
                     else
                         continue # not a complete match
                     end
@@ -635,6 +642,7 @@ function make_typealiases(x::Type)
                     applied = rewrap_unionall(applied, alias)
                     has_free_typevars(applied) && continue
                     applied <: x || continue # parameter matching didn't make a subtype
+                    print_without_params(x) && (env = Core.svec())
                     push!(aliases, Core.svec(GlobalRef(mod, name), env, applied, (ul, -length(env))))
                 end
             end
@@ -692,9 +700,12 @@ end
 
 function show(io::IO, ::MIME"text/plain", @nospecialize(x::Type))
     show(io, x)
-    if !print_without_params(x) && get(io, :compact, true) && make_typealias(x) !== nothing
-        print(io, " = ")
-        show(IOContext(io, :compact => false), x)
+    if !print_without_params(x) && get(io, :compact, true)
+        properx = makeproper(io, x)
+        if make_typealias(properx) !== nothing || x <: make_typealiases(properx)[2]
+            print(io, " = ")
+            show(IOContext(io, :compact => false), x)
+        end
     end
 
     #s1 = sprint(show, x, context = io)

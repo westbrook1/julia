@@ -8,7 +8,7 @@
 # complicated and some explanation is therefore provided in the following
 #
 # In the methods below, LAPACK is called when possible, i.e. StridedMatrices with Float32,
-# Float64, Complex{Float32}, and Complex{Float64} element types. For other element or
+# Float64, ComplexF32, and ComplexF64 element types. For other element or
 # matrix types, the unblocked Julia implementation in _chol! is used. For cholesky
 # and cholesky! pivoting is supported through a Val(Bool) argument. A type argument is
 # necessary for type stability since the output of cholesky and cholesky! is either

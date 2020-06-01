@@ -1295,7 +1295,7 @@ end
 @test sprint(show, Main) == "Main"
 
 @test sprint(Base.show_supertypes, Int64) == "Int64 <: Signed <: Integer <: Real <: Number <: Any"
-@test sprint(Base.show_supertypes, Vector{String}) == "Vector{String} <: DenseArray{String,1} <: AbstractArray{String,1} <: Any"
+@test sprint(Base.show_supertypes, Vector{String}) == "Vector{String} <: DenseVector{String} <: AbstractVector{String} <: Any"
 
 # static_show
 
@@ -1393,8 +1393,8 @@ end
 end
 
 @testset "alignment for complex arrays" begin # (#34763)
-    @test replstr([ 1e-7 + 2.0e-11im, 2.0e-5 + 4e0im]) == "2-element Vector{Complex{Float64}}:\n 1.0e-7 + 2.0e-11im\n 2.0e-5 + 4.0im"
-    @test replstr([ 1f-7 + 2.0f-11im, 2.0f-5 + 4f0im]) == "2-element Vector{Complex{Float32}}:\n 1.0f-7 + 2.0f-11im\n 2.0f-5 + 4.0f0im"
+    @test replstr([ 1e-7 + 2.0e-11im, 2.0e-5 + 4e0im]) == "2-element Vector{ComplexF64}:\n 1.0e-7 + 2.0e-11im\n 2.0e-5 + 4.0im"
+    @test replstr([ 1f-7 + 2.0f-11im, 2.0f-5 + 4f0im]) == "2-element Vector{ComplexF32}:\n 1.0f-7 + 2.0f-11im\n 2.0f-5 + 4.0f0im"
 end
 
 @testset "display arrays non-compactly when size(⋅, 2) == 1" begin
@@ -1431,7 +1431,7 @@ end
     @test showstr([x x; x x]) == showstr([x x; x x], :compact => false) ==
         "[3.141592653589793 3.141592653589793; 3.141592653589793 3.141592653589793]"
     @test replstr([x, x], :compact => false) ==
-        "2-element Vector{Float64}:\n 3.141592653589793\n 3.141592653589793"
+        "2-element Array{Float64,1}:\n 3.141592653589793\n 3.141592653589793"
     @test replstr([x, x]) == "2-element Vector{Float64}:\n 3.141592653589793\n 3.141592653589793"
     @test replstr([x, x], :compact => true) == "2-element Vector{Float64}:\n 3.14159\n 3.14159"
     @test replstr([x x; x x]) == replstr([x x; x x], :compact => true) ==

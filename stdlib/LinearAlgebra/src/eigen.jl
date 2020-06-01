@@ -83,23 +83,23 @@ julia> B = [0 1; 1 0]
  1  0
 
 julia> F = eigen(A, B)
-GeneralizedEigen{Complex{Float64},Complex{Float64},Matrix{Complex{Float64}},Vector{Complex{Float64}}}
+GeneralizedEigen{ComplexF64,ComplexF64,Matrix{ComplexF64},Vector{ComplexF64}}
 values:
-2-element Vector{Complex{Float64}}:
+2-element Vector{ComplexF64}:
  0.0 - 1.0im
  0.0 + 1.0im
 vectors:
-2×2 Matrix{Complex{Float64}}:
+2×2 Matrix{ComplexF64}:
   0.0+1.0im   0.0-1.0im
  -1.0+0.0im  -1.0-0.0im
 
 julia> F.values
-2-element Vector{Complex{Float64}}:
+2-element Vector{ComplexF64}:
  0.0 - 1.0im
  0.0 + 1.0im
 
 julia> F.vectors
-2×2 Matrix{Complex{Float64}}:
+2×2 Matrix{ComplexF64}:
   0.0+1.0im   0.0-1.0im
  -1.0+0.0im  -1.0-0.0im
 
@@ -481,12 +481,12 @@ julia> B = [0 1; 1 0]
 julia> F = eigen(A, B);
 
 julia> F.values
-2-element Vector{Complex{Float64}}:
+2-element Vector{ComplexF64}:
  0.0 - 1.0im
  0.0 + 1.0im
 
 julia> F.vectors
-2×2 Matrix{Complex{Float64}}:
+2×2 Matrix{ComplexF64}:
   0.0+1.0im   0.0-1.0im
  -1.0+0.0im  -1.0-0.0im
 
@@ -526,7 +526,7 @@ julia> B = [0. 1.; 1. 0.]
  1.0  0.0
 
 julia> eigvals!(A, B)
-2-element Vector{Complex{Float64}}:
+2-element Vector{ComplexF64}:
  0.0 - 1.0im
  0.0 + 1.0im
 
@@ -570,7 +570,7 @@ julia> B = [0 1; 1 0]
  1  0
 
 julia> eigvals(A,B)
-2-element Vector{Complex{Float64}}:
+2-element Vector{ComplexF64}:
  0.0 - 1.0im
  0.0 + 1.0im
 ```
@@ -599,7 +599,7 @@ julia> B = [0 1; 1 0]
  1  0
 
 julia> eigvecs(A, B)
-2×2 Matrix{Complex{Float64}}:
+2×2 Matrix{ComplexF64}:
   0.0+1.0im   0.0-1.0im
  -1.0+0.0im  -1.0-0.0im
 ```

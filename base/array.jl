@@ -510,7 +510,7 @@ julia> ones(1,2)
  1.0  1.0
 
 julia> ones(ComplexF64, 2, 3)
-2×3 Matrix{Complex{Float64}}:
+2×3 Matrix{ComplexF64}:
  1.0+0.0im  1.0+0.0im  1.0+0.0im
  1.0+0.0im  1.0+0.0im  1.0+0.0im
 ```

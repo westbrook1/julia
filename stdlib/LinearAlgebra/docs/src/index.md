@@ -37,12 +37,12 @@ julia> A = [-4. -17.; 2. 2.]
   2.0    2.0
 
 julia> eigvals(A)
-2-element Vector{Complex{Float64}}:
+2-element Vector{ComplexF64}:
  -1.0 - 5.0im
  -1.0 + 5.0im
 
 julia> eigvecs(A)
-2×2 Matrix{Complex{Float64}}:
+2×2 Matrix{ComplexF64}:
   0.945905-0.0im        0.945905+0.0im
  -0.166924+0.278207im  -0.166924-0.278207im
 ```

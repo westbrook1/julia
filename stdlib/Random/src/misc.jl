@@ -20,7 +20,7 @@ Generate a `BitArray` of random boolean values.
 julia> rng = MersenneTwister(1234);
 
 julia> bitrand(rng, 10)
-10-element BitArray{1}:
+10-element BitVector:
  0
  1
  1

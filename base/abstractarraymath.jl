@@ -212,7 +212,7 @@ julia> circshift(b, (-1,0))
  1  5   9  13
 
 julia> a = BitArray([true, true, false, false, true])
-5-element BitArray{1}:
+5-element BitVector:
  1
  1
  0
@@ -220,7 +220,7 @@ julia> a = BitArray([true, true, false, false, true])
  1
 
 julia> circshift(a, 1)
-5-element BitArray{1}:
+5-element BitVector:
  1
  1
  1
@@ -228,7 +228,7 @@ julia> circshift(a, 1)
  0
 
 julia> circshift(a, -1)
-5-element BitArray{1}:
+5-element BitVector:
  1
  0
  0
