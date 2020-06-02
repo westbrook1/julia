@@ -24,46 +24,12 @@ hash(@nospecialize(x), h::UInt) = hash_uint(3h - objectid(x))
 
 ## core data hashing functions ##
 
-function hash_64_64(n::UInt64)
-    a::UInt64 = n
-    a = ~a + a << 21
-    a =  a ⊻ a >> 24
-    a =  a + a << 3 + a << 8
-    a =  a ⊻ a >> 14
-    a =  a + a << 2 + a << 4
-    a =  a ⊻ a >> 28
-    a =  a + a << 31
-    return a
-end
-
-function hash_64_32(n::UInt64)
-    a::UInt64 = n
-    a = ~a + a << 18
-    a =  a ⊻ a >> 31
-    a =  a * 21
-    a =  a ⊻ a >> 11
-    a =  a + a << 6
-    a =  a ⊻ a >> 22
-    return a % UInt32
-end
-
-function hash_32_32(n::UInt32)
-    a::UInt32 = n
-    a = a + 0x7ed55d16 + a << 12
-    a = a ⊻ 0xc761c23c ⊻ a >> 19
-    a = a + 0x165667b1 + a << 5
-    a = a + 0xd3a2646c ⊻ a << 9
-    a = a + 0xfd7046c5 + a << 3
-    a = a ⊻ 0xb55a4f09 ⊻ a >> 16
-    return a
-end
-
-if UInt === UInt64
-    hash_uint64(x::UInt64) = hash_64_64(x)
-    hash_uint(x::UInt)     = hash_64_64(x)
-else
-    hash_uint64(x::UInt64) = hash_64_32(x)
-    hash_uint(x::UInt)     = hash_32_32(x)
+function hash_uint(n::T) where {T <: Union{UInt64, UInt32}}
+    # random constants, first must be odd
+    a = (0xafa64689f53d9ee1 % T) * ((0xcb9de6b205c9c1e2 % T) ⊻ n)
+    b = (0xe391e8b4ff155ee5 % T) + ((0xb9d8ebf206d49927 % T) ⊻ n)
+    c = a ⊻ b # bitrotate(a, 43) ⊻ bitrotate(b, -17)
+    return c % UInt
 end
 
 ## symbol & expression hashing ##
