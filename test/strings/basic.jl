@@ -1074,3 +1074,9 @@ let x = SubString("ab", 1, 1)
     @test y === x
     chop("ab") === chop.(["ab"])[1]
 end
+
+# summary
+@testset "summary" begin
+    @test sprint(summary, "foα") == "4-codeunit String"
+    @test sprint(summary, SubString("foα", 2)) == "3-codeunit SubString{String}"
+end
