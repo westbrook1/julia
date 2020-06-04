@@ -1051,13 +1051,12 @@ struct jl_typemap_info {
     jl_datatype_t **jl_contains; // the type that is being put in this
 };
 
-jl_typemap_entry_t *jl_typemap_insert(jl_typemap_t **cache,
-                                      jl_value_t *parent JL_PROPAGATES_ROOT,
-                                      jl_tupletype_t *type,
-                                      jl_tupletype_t *simpletype, jl_svec_t *guardsigs,
-                                      jl_value_t *newvalue, int8_t offs,
-                                      const struct jl_typemap_info *tparams,
-                                      size_t min_world, size_t max_world);
+void jl_typemap_insert(jl_typemap_t **cache, jl_value_t *parent,
+        jl_typemap_entry_t *newrec, int8_t offs,
+        const struct jl_typemap_info *tparams);
+jl_typemap_entry_t *jl_typemap_alloc(
+        jl_tupletype_t *type, jl_tupletype_t *simpletype, jl_svec_t *guardsigs,
+        jl_value_t *newvalue, size_t min_world, size_t max_world);
 
 struct jl_typemap_assoc {
     // inputs

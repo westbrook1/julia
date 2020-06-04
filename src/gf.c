@@ -231,7 +231,8 @@ jl_datatype_t *jl_mk_builtin_func(jl_datatype_t *dt, const char *name, jl_fptr_a
     m->sig = (jl_value_t*)jl_anytuple_type;
     m->slot_syms = jl_an_empty_string;
 
-    JL_GC_PUSH1(&m);
+    jl_typemap_entry_t *newentry = NULL;
+    JL_GC_PUSH2(&m, &newentry);
     jl_method_instance_t *mi = jl_get_specialized(m, (jl_value_t*)jl_anytuple_type, jl_emptysvec);
     m->unspecialized = mi;
     jl_gc_wb(m, mi);
@@ -242,8 +243,10 @@ jl_datatype_t *jl_mk_builtin_func(jl_datatype_t *dt, const char *name, jl_fptr_a
     codeinst->invoke = jl_fptr_args;
 
     jl_methtable_t *mt = dt->name->mt;
-    jl_typemap_insert(&mt->cache, (jl_value_t*)mt, jl_anytuple_type,
-        NULL, jl_emptysvec, (jl_value_t*)mi, 0, &lambda_cache, 1, ~(size_t)0);
+    newentry = jl_typemap_alloc(jl_anytuple_type, NULL, jl_emptysvec,
+            (jl_value_t*)mi, 1, ~(size_t)0);
+    jl_typemap_insert(&mt->cache, (jl_value_t*)mt, newentry, 0, &lambda_cache);
+
     mt->frozen = 1;
     JL_GC_POP();
     return dt;
@@ -1102,10 +1105,8 @@ static jl_method_instance_t *cache_method(
         }
     }
 
-    jl_typemap_entry_t *newentry = jl_typemap_insert(
-            cache, parent, cachett, simplett, guardsigs,
-            (jl_value_t*)newmeth, offs, &lambda_cache,
-            min_valid, max_valid);
+    jl_typemap_entry_t *newentry = jl_typemap_alloc(cachett, simplett, guardsigs, (jl_value_t*)newmeth, min_valid, max_valid);
+    temp = (jl_value_t*)newentry;
     if (mt && cachett == tt && simplett == NULL && jl_svec_len(guardsigs) == 0) {
         if (!jl_has_free_typevars((jl_value_t*)tt) && jl_lookup_cache_type_(tt) == NULL) {
             // if this type isn't normally in the cache, force it in there now
@@ -1116,9 +1117,14 @@ static jl_method_instance_t *cache_method(
                 jl_cache_type_(tt);
             JL_UNLOCK(&typecache_lock); // Might GC
         }
-        // jl_typemap_entry_t *old = (jl_typemap_entry_t*)jl_eqtable_get(mt->leafcache, (jl_value_t*)tt, NULL);
+        jl_typemap_entry_t *old = (jl_typemap_entry_t*)jl_eqtable_get(mt->leafcache, (jl_value_t*)tt, jl_nothing);
+        newentry->next = old;
+        jl_gc_wb(newentry, old);
         mt->leafcache = jl_eqtable_put(mt->leafcache, (jl_value_t*)tt, (jl_value_t*)newentry, NULL);
         jl_gc_wb(mt, mt->leafcache);
+    }
+    else {
+         jl_typemap_insert(cache, parent, newentry, offs, &lambda_cache);
     }
 
     JL_GC_POP();
@@ -1764,7 +1770,8 @@ JL_DLLEXPORT void jl_method_table_insert(jl_methtable_t *mt, jl_method_t *method
     size_t max_world = method->primary_world - 1;
     int invalidated = 0;
     jl_value_t *loctag = NULL;  // debug info for invalidation
-    JL_GC_PUSH2(&oldvalue, &loctag);
+    jl_typemap_entry_t *newentry = NULL;
+    JL_GC_PUSH3(&oldvalue, &newentry, &loctag);
     JL_LOCK(&mt->writelock);
     // first delete the existing entry (we'll disable it later)
     struct jl_typemap_assoc search = {(jl_value_t*)type, method->primary_world, NULL, 0, ~(size_t)0};
@@ -1774,9 +1781,9 @@ JL_DLLEXPORT void jl_method_table_insert(jl_methtable_t *mt, jl_method_t *method
         // TODO: just append our new entry right here
     }
     // then add our new entry
-    jl_typemap_entry_t *newentry = jl_typemap_insert(&mt->defs, (jl_value_t*)mt,
-            (jl_tupletype_t*)type, simpletype, jl_emptysvec, (jl_value_t*)method, 0, &method_defs,
-            method->primary_world, method->deleted_world);
+    newentry = jl_typemap_alloc((jl_tupletype_t*)type, simpletype, jl_emptysvec,
+            (jl_value_t*)method, method->primary_world, method->deleted_world);
+    jl_typemap_insert(&mt->defs, (jl_value_t*)mt, newentry, 0, &method_defs);
     oldvalue = check_ambiguous_matches(mt->defs, newentry, check_ambiguous_visitor);
     if (oldentry) {
         oldvalue = oldentry->func.value;
@@ -1918,11 +1925,14 @@ jl_method_instance_t *jl_method_lookup(jl_value_t **args, size_t nargs, int cach
 {
     assert(nargs > 0 && "expected caller to handle this case");
     jl_methtable_t *mt = jl_gf_mtable(args[0]);
-    jl_tupletype_t *tt = lookup_arg_type_tuple(args[0], &args[1], nargs);
-    if (tt != NULL) {
-        jl_typemap_entry_t *entry = (jl_typemap_entry_t*)jl_eqtable_get(mt->leafcache, (jl_value_t*)tt, NULL);
-        if (entry && entry->func.value && entry->min_world <= world && world <= entry->max_world)
-            return entry->func.linfo;
+    jl_tupletype_t *tt = NULL;
+    if (jl_array_len(mt->leafcache)) {
+        tt = lookup_arg_type_tuple(args[0], &args[1], nargs);
+        if (tt != NULL) {
+            jl_typemap_entry_t *entry = (jl_typemap_entry_t*)jl_eqtable_get(mt->leafcache, (jl_value_t*)tt, NULL);
+            if (entry && entry->func.value && entry->min_world <= world && world <= entry->max_world)
+                return entry->func.linfo;
+        }
     }
     jl_typemap_entry_t *entry = jl_typemap_assoc_exact(mt->cache, args[0], &args[1], nargs, jl_cachearg_offset(mt), world);
     if (entry)
@@ -2850,27 +2860,32 @@ static jl_value_t *ml_matches(jl_methtable_t *mt, int offs,
     if (jl_is_dispatch_tupletype((jl_value_t*)type)) {
         jl_array_t *cache = jl_atomic_load_relaxed(&mt->leafcache);
         jl_typemap_entry_t *entry = (jl_typemap_entry_t*)jl_eqtable_get(cache, (jl_value_t*)type, NULL);
-        if (entry != NULL && entry->func.value != NULL && entry->min_world <= world && entry->max_world >= world) {
-            jl_method_instance_t *mi = entry->func.linfo;
-            jl_method_t *meth = mi->def.method;
-            jl_value_t *tpenv2 = (jl_value_t*)jl_emptysvec;
-            jl_value_t *types2 = NULL;
-            JL_GC_PUSH2(&tpenv2, &types2);
-            if (jl_egal((jl_value_t*)type, mi->specTypes)) {
-                tpenv2 = (jl_value_t*)mi->sparam_vals;
-                types2 = mi->specTypes;
-            }
-            else {
-                // TODO: should we use jl_subtype_env instead (since we know that `type <: meth->sig` by transitivity)
-                types2 = jl_type_intersection_env((jl_value_t*)type, (jl_value_t*)meth->sig, (jl_svec_t**)&tpenv2);
-            }
-            types2 = (jl_value_t*)jl_svec(4, types2, tpenv2, meth, jl_true);
-            tpenv2 = (jl_value_t*)jl_alloc_vec_any(1);
-            jl_array_ptr_set(tpenv2, 0, types2);
-            *min_valid = entry->min_world;
-            *max_valid = entry->max_world;
-            JL_GC_POP();
-            return tpenv2;
+        if (entry != NULL && entry->func.value != NULL) {
+            do {
+                if (entry->min_world <= world && entry->max_world >= world) {
+                    jl_method_instance_t *mi = entry->func.linfo;
+                    jl_method_t *meth = mi->def.method;
+                    jl_value_t *tpenv2 = (jl_value_t*)jl_emptysvec;
+                    jl_value_t *types2 = NULL;
+                    JL_GC_PUSH2(&tpenv2, &types2);
+                    if (jl_egal((jl_value_t*)type, mi->specTypes)) {
+                        tpenv2 = (jl_value_t*)mi->sparam_vals;
+                        types2 = mi->specTypes;
+                    }
+                    else {
+                        // TODO: should we use jl_subtype_env instead (since we know that `type <: meth->sig` by transitivity)
+                        types2 = jl_type_intersection_env((jl_value_t*)type, (jl_value_t*)meth->sig, (jl_svec_t**)&tpenv2);
+                    }
+                    types2 = (jl_value_t*)jl_svec(4, types2, tpenv2, meth, jl_true);
+                    tpenv2 = (jl_value_t*)jl_alloc_vec_any(1);
+                    jl_array_ptr_set(tpenv2, 0, types2);
+                    *min_valid = entry->min_world;
+                    *max_valid = entry->max_world;
+                    JL_GC_POP();
+                    return tpenv2;
+                }
+                entry = entry->next;
+            } while ((jl_value_t*)entry != jl_nothing);
         }
     }
 
