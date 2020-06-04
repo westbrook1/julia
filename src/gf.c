@@ -946,15 +946,15 @@ static jl_method_instance_t *cache_method(
     // short-circuit (now that we hold the lock) if this entry is already present
     int8_t offs = mt ? jl_cachearg_offset(mt) : 1;
     { // scope block
+        struct jl_typemap_assoc search = {(jl_value_t*)tt, world, NULL, 0, ~(size_t)0};
+        jl_typemap_entry_t *entry = jl_typemap_assoc_by_type(*cache, &search, offs, /*subtype*/1);
+        if (entry && entry->func.value)
+            return entry->func.linfo;
         if (mt) {
             jl_typemap_entry_t *entry = (jl_typemap_entry_t*)jl_eqtable_get(mt->leafcache, (jl_value_t*)tt, NULL);
             if (entry && entry->func.value)
                 return entry->func.linfo;
         }
-        struct jl_typemap_assoc search = {(jl_value_t*)tt, world, NULL, 0, ~(size_t)0};
-        jl_typemap_entry_t *entry = jl_typemap_assoc_by_type(*cache, &search, offs, /*subtype*/1);
-        if (entry && entry->func.value)
-            return entry->func.linfo;
     }
 
     jl_value_t *temp = NULL;
@@ -1202,16 +1202,16 @@ static jl_typemap_entry_t *jl_typemap_morespecific_by_type(jl_typemap_entry_t *f
 static jl_method_instance_t *jl_mt_assoc_by_type(jl_methtable_t *mt, jl_datatype_t *tt, int mt_cache, size_t world)
 {
     // caller must hold the mt->writelock
+    struct jl_typemap_assoc search = {(jl_value_t*)tt, world, NULL, 0, ~(size_t)0};
+    jl_typemap_entry_t *entry = jl_typemap_assoc_by_type(mt->cache, &search, jl_cachearg_offset(mt), /*subtype*/1);
+    if (entry && entry->func.value)
+        return entry->func.linfo;
     if (tt->isdispatchtuple) {
         jl_typemap_entry_t *entry = (jl_typemap_entry_t*)jl_eqtable_get(mt->leafcache, (jl_value_t*)tt, NULL);
         if (entry && entry->func.value)
             return entry->func.linfo;
     }
 
-    struct jl_typemap_assoc search = {(jl_value_t*)tt, world, NULL, 0, ~(size_t)0};
-    jl_typemap_entry_t *entry = jl_typemap_assoc_by_type(mt->cache, &search, jl_cachearg_offset(mt), /*subtype*/1);
-    if (entry && entry->func.value)
-        return entry->func.linfo;
 
     jl_method_instance_t *nf = NULL;
     jl_svec_t *newparams = NULL;
@@ -1916,31 +1916,24 @@ jl_tupletype_t *arg_type_tuple(jl_value_t *arg1, jl_value_t **args, size_t nargs
     return jl_inst_arg_tuple_type(arg1, args, nargs, 1);
 }
 
-jl_tupletype_t *lookup_arg_type_tuple(jl_value_t *arg1, jl_value_t **args, size_t nargs)
-{
-    return jl_lookup_arg_tuple_type(arg1, args, nargs, 1);
-}
-
 jl_method_instance_t *jl_method_lookup(jl_value_t **args, size_t nargs, int cache, size_t world)
 {
     assert(nargs > 0 && "expected caller to handle this case");
     jl_methtable_t *mt = jl_gf_mtable(args[0]);
-    jl_tupletype_t *tt = NULL;
-    if (jl_array_len(mt->leafcache)) {
-        tt = lookup_arg_type_tuple(args[0], &args[1], nargs);
-        if (tt != NULL) {
-            jl_typemap_entry_t *entry = (jl_typemap_entry_t*)jl_eqtable_get(mt->leafcache, (jl_value_t*)tt, NULL);
-            if (entry && entry->func.value && entry->min_world <= world && world <= entry->max_world)
-                return entry->func.linfo;
-        }
-    }
     jl_typemap_entry_t *entry = jl_typemap_assoc_exact(mt->cache, args[0], &args[1], nargs, jl_cachearg_offset(mt), world);
     if (entry)
         return entry->func.linfo;
-    JL_LOCK(&mt->writelock);
-    if (tt == NULL)
-        tt = arg_type_tuple(args[0], &args[1], nargs);
+    jl_tupletype_t *tt = arg_type_tuple(args[0], &args[1], nargs);
+    entry = (jl_typemap_entry_t*)jl_eqtable_get(mt->leafcache, (jl_value_t*)tt, NULL);
+    if (entry) {
+        do {
+            if (entry->min_world <= world && world <= entry->max_world)
+                return entry->func.linfo;
+            entry = entry->next;
+        } while ((jl_value_t*)entry != jl_nothing);
+    }
     JL_GC_PUSH1(&tt);
+    JL_LOCK(&mt->writelock);
     jl_method_instance_t *sf = jl_mt_assoc_by_type(mt, tt, cache, world);
     JL_GC_POP();
     JL_UNLOCK(&mt->writelock);
@@ -2416,15 +2409,19 @@ STATIC_INLINE jl_method_instance_t *jl_lookup_generic_(jl_value_t *F, jl_value_t
         // if no method was found in the associative cache, check the full cache
         JL_TIMING(METHOD_LOOKUP_FAST);
         mt = jl_gf_mtable(F);
-        entry = NULL;
-        if (jl_array_len(mt->leafcache)) {
-            tt  = lookup_arg_type_tuple(F, args, nargs);
-            if (tt != NULL) {
-                entry = (jl_typemap_entry_t*)jl_eqtable_get(mt->leafcache, (jl_value_t*)tt, NULL);
+        entry = jl_typemap_assoc_exact(mt->cache, F, args, nargs, jl_cachearg_offset(mt), world);
+        if (entry == NULL) {
+            tt = arg_type_tuple(F, args, nargs);
+            entry = (jl_typemap_entry_t*)jl_eqtable_get(mt->leafcache, (jl_value_t*)tt, NULL);
+            if (entry) {
+                do {
+                    if (entry->min_world > world || world > entry->max_world) {
+                        goto have_entry;
+                    }
+                    entry = entry->next;
+                } while ((jl_value_t*)entry != jl_nothing);
+                entry = NULL;
             }
-        }
-        if (entry == NULL || entry->func.value == NULL || entry->min_world > world || world > entry->max_world) {
-            entry = jl_typemap_assoc_exact(mt->cache, F, args, nargs, jl_cachearg_offset(mt), world);
         }
         if (entry && entry->isleafsig && entry->simplesig == (void*)jl_nothing && entry->guardsigs == jl_emptysvec) {
             // put the entry into the cache if it's valid for a leafsig lookup,
@@ -2440,12 +2437,11 @@ have_entry:
     }
     else {
         int64_t last_alloc = jl_options.malloc_log ? jl_gc_diff_total_bytes() : 0;
+        JL_GC_PUSH1(&tt);
+        assert(tt);
         JL_LOCK(&mt->writelock);
         // cache miss case
         JL_TIMING(METHOD_LOOKUP_SLOW);
-        if (tt == NULL)
-            tt = arg_type_tuple(F, args, nargs);
-        JL_GC_PUSH1(&tt);
         mfunc = jl_mt_assoc_by_type(mt, tt, /*cache*/1, world);
         JL_GC_POP();
         JL_UNLOCK(&mt->writelock);
@@ -2860,7 +2856,7 @@ static jl_value_t *ml_matches(jl_methtable_t *mt, int offs,
     if (jl_is_dispatch_tupletype((jl_value_t*)type)) {
         jl_array_t *cache = jl_atomic_load_relaxed(&mt->leafcache);
         jl_typemap_entry_t *entry = (jl_typemap_entry_t*)jl_eqtable_get(cache, (jl_value_t*)type, NULL);
-        if (entry != NULL && entry->func.value != NULL) {
+        if (entry) {
             do {
                 if (entry->min_world <= world && entry->max_world >= world) {
                     jl_method_instance_t *mi = entry->func.linfo;
